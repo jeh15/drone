@@ -38,31 +38,11 @@ trajData = []
 timeIter = 0
 runNum = 0
 
-#Gets 3D state of object as numpy array
-def getState3D(lastPos,pos,dTime):
-    dPos = pos-lastPos
-    vel = dPos.copy()/dTime
-    state3D = np.array([pos[0],pos[1],pos[2],vel[0],vel[1],vel[2]])
-    return state3D
-
-#Gets 2D state of object as matlab double array
+#Gets 3D state of object as np array
 def getState(lastPos,pos,dTime):
     dPos = pos-lastPos
     vel = dPos.copy()/dTime
-    state = matlab.double([pos[0].copy(),pos[1].copy(),vel[0].copy(),vel[1].copy()])
-    state = eng.transpose(state)
-    return state
-
-def adjustState(state,solveTime):
-    state = np.array(state)
-    x = state[0,0]
-    y = state[1,0]
-    Vx = state[2,0]
-    Vy = state[3,0]
-    nx = x + (Vx*solveTime)
-    ny = y + (Vy*solveTime)
-    state = matlab.double([nx,ny,Vx,Vy])
-    state = eng.transpose(state)
+    state = np.array([pos[0], pos[1], pos[2], vel[0], vel[1], vel[2]])
     return state
 
 #Function SHOULD evaluate numpy trajectory the same way as uav_trajectory automatically
@@ -153,10 +133,6 @@ if __name__ == "__main__":
                 objState = getState(lastObjPos,objPos,dT)
                 #Get drone state vector
                 droneState = getState(lastDronePos,dronePos,dT)
-                
-                #Save data for logging
-                droneState3D = getState3D(lastDronePos,dronePos,dT)
-                objState3D = getState3D(lastObjPos,objPos,dT)
 
                 solveTime = time.time()-lt
     
