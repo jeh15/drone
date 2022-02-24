@@ -7,8 +7,12 @@ import math
 import random
 import time
 
-
- 
+#-------------------------------------------------------------------------------------
+#Running this function returns a dictionary "setup" that contains all
+#the setup values necessary for any future optimizations.
+#This includes parameters like Th, Nodes, r_min, r_min2, etc.
+#Also includes all matrices that can be precomputed without knowledge of
+#states -- H, ABound, ADyn1, ADyn2, and ARisk for now
 def obst_avoid_setup():
     setup = {}
     setup['Th'] = 2.5;
@@ -113,6 +117,13 @@ def obst_avoid_setup():
     
     return setup
 
+#----------------------------------------------------------------------------------
+
+#This function returns the next trajectory given states of drone, obstacle, and target,
+#along with the setup parameters/precomputed matrices
+#Optional parameter prevTraj takes into account previous trajectory when computing
+#line constraints
+#Trajectory is in the form of the 33 x n matrix: dt, x (0-7), y (0-7), z (0-7), yaw (0-7)
 def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
     T = setup['Th']
     n = setup['Nodes']
@@ -263,6 +274,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
     
     return finalTraj
 
+#-------------------------------------------------------------------------------------
 ### TESTING CODE ###
 # setup = obst_avoid_setup()
 # 
