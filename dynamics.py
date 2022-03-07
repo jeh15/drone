@@ -37,6 +37,8 @@ H = [[objective_function.diff(axis_0).diff(axis_1) for axis_0 in z] for axis_1 i
 f = [objective_function.diff(axis_0) for axis_0 in z]
 f = [f[i].subs(z[i], 0) for i in range(len(z))]
 
+change is here
+
 # Convert H to numpy array:
 H = numpy.asarray(H, dtype=float)
 H = scipy.sparse.csc_matrix(H)
