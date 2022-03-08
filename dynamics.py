@@ -5,6 +5,9 @@ import sympy
 import scipy
 from scipy.sparse import csc_matrix
 
+# Just for timing:
+import time
+
 nodes = 11
 ## Symbolic Formulation of H, f, A, and b matricies:
 
@@ -24,6 +27,12 @@ dy_desired = sympy.symarray('dy_desired', nodes)
 
 # Design Variable Vector:
 z = numpy.concatenate([x, dx, f_x, y, dy, f_y], axis=0)
+# Commonly used numbers:
+number_of_states = 4
+number_of_inputs = 2
+number_of_design_variables = number_of_states + number_of_inputs
+design_vector_length = len(z)
+design_vector_column_format = (nodes, number_of_design_variables)
 
 # Reference/Desired Variable Vector:
 desired_vector = numpy.concatenate([x_desired, dx_desired, y_desired, dy_desired], axis=0)
@@ -37,7 +46,7 @@ H = [[objective_function.diff(axis_0).diff(axis_1) for axis_0 in z] for axis_1 i
 
 # Compute Gradient:
 f = [objective_function.diff(axis_0) for axis_0 in z]
-f = [f[i].subs(z[i], 0) for i in range(len(z))]
+f = [f[i].subs(z[i], 0) for i in range(design_vector_length)]
 
 # Convert H to numpy array:
 H = numpy.asarray(H, dtype=float)
@@ -74,3 +83,32 @@ b_initial_conditions = sympy.lambdify([initial_condition], b_initial_conditions,
 
 # Inequality Constraints:
 # Variable Bounds:
+# Pre-allocate Matrix:
+design_variables_bound = numpy.zeros(design_vector_column_format)
+# Symmetric Bounds:
+position_bound = 2
+velocity_bound = 10
+force_bound = 10
+design_variables_bound[:, 0] = position_bound
+design_variables_bound[:, 1] = velocity_bound
+design_variables_bound[:, 2] = force_bound
+design_variables_bound[:, 3] = position_bound
+design_variables_bound[:, 4] = velocity_bound
+design_variables_bound[:, 5] = force_bound
+design_variables_bound = design_variables_bound.flatten(order='F')
+constraint_design_variables_lower_bound = z[:] + design_variables_bound
+constraint_design_variables_upper_bound = z[:] - design_variables_bound
+constraint_design_variables_bound = numpy.concatenate((constraint_design_variables_lower_bound, constraint_design_variables_upper_bound), axis=0)
+A_variable_bounds, b_variable_bounds = sympy.linear_eq_to_matrix(constraint_design_variables_bound, z)
+A_variable_bounds = scipy.sparse.csc_matrix(A_variable_bounds, dtype=float)
+
+# Add Risk Constraints Here:
+
+# What needs updating: f, b_initial_conditions, (and risk when it gets added).
+
+# Try to run the solver:
+import osqp
+
+m = osqp.OSQP()
+
+
