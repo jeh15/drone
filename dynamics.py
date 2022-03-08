@@ -1,3 +1,5 @@
+# This function is to test the dynamics: WIP Make an autogenerate class for H, f, A, and b
+
 import numpy
 import sympy
 import scipy
@@ -21,7 +23,7 @@ y_desired = sympy.symarray('y_desired', nodes)
 dy_desired = sympy.symarray('dy_desired', nodes)
 
 # Design Variable Vector:
-z = numpy.concatenate([x, dx, y, dy, f_x, f_y], axis=0)
+z = numpy.concatenate([x, dx, f_x, y, dy, f_y], axis=0)
 
 # Reference/Desired Variable Vector:
 desired_vector = numpy.concatenate([x_desired, dx_desired, y_desired, dy_desired], axis=0)
@@ -37,8 +39,6 @@ H = [[objective_function.diff(axis_0).diff(axis_1) for axis_0 in z] for axis_1 i
 f = [objective_function.diff(axis_0) for axis_0 in z]
 f = [f[i].subs(z[i], 0) for i in range(len(z))]
 
-change is here
-
 # Convert H to numpy array:
 H = numpy.asarray(H, dtype=float)
 H = scipy.sparse.csc_matrix(H)
@@ -46,5 +46,31 @@ H = scipy.sparse.csc_matrix(H)
 # Lambdify f:
 f = sympy.lambdify([desired_vector], sympy.SparseMatrix([f]), 'scipy')
 
-import inspect
-print(inspect.getsource(f))
+## Generate Constraint Matrix and Functions:
+dt = 1.0    # Placeholder
+
+# States:
+q = numpy.stack([x, y], axis=1)
+dq = numpy.stack([dx, dy], axis=1)
+u = numpy.stack([f_x, f_y], axis=1)
+
+# Equality Constraints:
+# Dynamics Constraints: (Lets try to vectorize as much as possible)
+constraints_dynamics_position = q[1:, :] - q[:-1, :] - dq[:-1, :] * dt
+constraints_dynamics_velocity = dq[1:, :] - dq[:-1, :] - u[:-1, :] * dt
+constraints_dynamics = numpy.row_stack((constraints_dynamics_position, constraints_dynamics_velocity))
+constraints_dynamics = constraints_dynamics.flatten(order='F')
+A_dynamics, b_dynamics = sympy.linear_eq_to_matrix(constraints_dynamics, z)
+# These never have to be modified again:
+A_dynamics = scipy.sparse.csc_matrix(A_dynamics, dtype=float)
+b_dynamics = scipy.sparse.csc_array(b_dynamics, dtype=float)
+
+# Initial Conditions: (The b must be updated)
+initial_condition = sympy.symarray('initial_condition', 4)
+constraints_initial_conditions = numpy.row_stack((q[0, :] - initial_condition[:2], dq[0, :] - initial_condition[2:])).flatten(order='F')
+A_initial_conditions, b_initial_conditions = sympy.linear_eq_to_matrix(constraints_initial_conditions, z)
+A_initial_conditions = scipy.sparse.csc_matrix(A_initial_conditions, dtype=float)
+b_initial_conditions = sympy.lambdify([initial_condition], b_initial_conditions, 'numpy')
+
+# Inequality Constraints:
+# Variable Bounds:
