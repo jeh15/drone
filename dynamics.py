@@ -53,7 +53,8 @@ H = numpy.asarray(H, dtype=float)
 H = scipy.sparse.csc_matrix(H)
 
 # Lambdify f:
-f = sympy.lambdify([desired_vector], sympy.SparseMatrix([f]), 'scipy')
+# f = sympy.lambdify([desired_vector], sympy.SparseMatrix([f]), 'scipy')
+f = sympy.lambdify([desired_vector], sympy.Matrix(f), 'numpy')
 
 ## Generate Constraint Matrix and Functions:
 dt = 1.0    # Placeholder
@@ -72,7 +73,7 @@ constraints_dynamics = constraints_dynamics.flatten(order='F')
 A_dynamics, b_dynamics = sympy.linear_eq_to_matrix(constraints_dynamics, z)
 # These never have to be modified again:
 A_dynamics = scipy.sparse.csc_matrix(A_dynamics, dtype=float)
-b_dynamics = scipy.sparse.csc_array(b_dynamics, dtype=float)
+# b_dynamics = scipy.sparse.csc_array(b_dynamics, dtype=float)
 
 # Initial Conditions: (The b must be updated)
 initial_condition = sympy.symarray('initial_condition', 4)
@@ -80,6 +81,13 @@ constraints_initial_conditions = numpy.row_stack((q[0, :] - initial_condition[:2
 A_initial_conditions, b_initial_conditions = sympy.linear_eq_to_matrix(constraints_initial_conditions, z)
 A_initial_conditions = scipy.sparse.csc_matrix(A_initial_conditions, dtype=float)
 b_initial_conditions = sympy.lambdify([initial_condition], b_initial_conditions, 'numpy')
+
+# You need to get the results from the function first.
+A_equality = scipy.sparse.vstack([A_dynamics, A_initial_conditions])
+Dummy_Value = numpy.zeros((4,))
+initial_condition_constraints = b_initial_conditions(Dummy_Value)
+lower_equality = numpy.vstack([b_dynamics, initial_condition_constraints])
+upper_equality = lower_equality
 
 # Inequality Constraints:
 # Variable Bounds:
@@ -96,19 +104,55 @@ design_variables_bound[:, 3] = position_bound
 design_variables_bound[:, 4] = velocity_bound
 design_variables_bound[:, 5] = force_bound
 design_variables_bound = design_variables_bound.flatten(order='F')
-constraint_design_variables_lower_bound = z[:] + design_variables_bound
+constraint_design_variables_lower_bound = -z[:] + design_variables_bound
 constraint_design_variables_upper_bound = z[:] - design_variables_bound
-constraint_design_variables_bound = numpy.concatenate((constraint_design_variables_lower_bound, constraint_design_variables_upper_bound), axis=0)
-A_variable_bounds, b_variable_bounds = sympy.linear_eq_to_matrix(constraint_design_variables_bound, z)
+# constraint_design_variables_bound = numpy.concatenate((constraint_design_variables_lower_bound, constraint_design_variables_upper_bound), axis=0)
+# A_variable_bounds, b_variable_bounds = sympy.linear_eq_to_matrix(constraint_design_variables_bound, z)
+# A_variable_bounds = scipy.sparse.csc_matrix(A_variable_bounds, dtype=float)
+
+# Only solve relative to a single bounds:
+constraint_design_variables_upper_bound = z[:] - design_variables_bound
+A_variable_bounds, b_variable_bounds = sympy.linear_eq_to_matrix(constraint_design_variables_upper_bound, z)
 A_variable_bounds = scipy.sparse.csc_matrix(A_variable_bounds, dtype=float)
+lower_inequality = numpy.array([-design_variables_bound]).T
+upper_inequality = numpy.array([design_variables_bound]).T
 
 # Add Risk Constraints Here:
+
+A_inequality = A_variable_bounds
 
 # What needs updating: f, b_initial_conditions, (and risk when it gets added).
 
 # Try to run the solver:
 import osqp
 
-m = osqp.OSQP()
+qp = osqp.OSQP()
 
+# Combine Constraints: (Don't forget to evaluate functions)
+A = scipy.sparse.vstack([A_equality, A_inequality])
+l = numpy.vstack([lower_equality, lower_inequality])
+u = numpy.vstack([upper_equality, upper_inequality])
 
+# Solve for updated f:
+desired_trajectory = numpy.hstack([numpy.ones(nodes,), numpy.zeros(nodes,), numpy.ones(nodes,), numpy.zeros(nodes,)])
+f_updated = f(desired_trajectory)
+
+# Setup OSQP
+qp.setup(H, f_updated, A, l, u, warm_start=True)
+
+# Solve:
+res = qp.solve()
+solution = numpy.reshape(res.x, (nodes, number_of_design_variables), order='F')
+
+# Plot Solution:
+import matplotlib.pyplot as plt
+plt.plot(solution[:, 0], solution[:, 3], marker='o')
+plt.show()
+
+# TO DO:
+''' 
+Remake problem such that we only use 1D array.
+Remake problem to fit the format of l, u.
+Remake workflow for updating f, b_initial_conditions, (and risk when it gets added).
+Use a proper dt
+'''
