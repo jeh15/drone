@@ -1,22 +1,22 @@
-# This function is to test the dynamics: WIP Make an autogenerate class for H, f, A, and b
-
-import numpy
-import sympy
-import scipy
-from scipy.sparse import csc_matrix
-
-
 class Drone:
 
-    def __init__(self, nodes, **kwargs):
+    def __init__(self, nodes, x0, desired_trajectory, **kwargs):
         """
         Initialize Attributes:
         """
 
+        # Import Class Specific Libraries:
+        import numpy
+        import sympy
+        import osqp
+        import scipy
+        from scipy.sparse import csc_matrix
+        
         # Set Attributes:
         self.nodes = nodes
+        self.reference_trajectory = desired_trajectory
+        self.x0 = x0
 
-        # Initialize Attributes:
 
     def initialize_optimization(self):
         """
@@ -51,8 +51,8 @@ class Drone:
         _reference_trajectory = numpy.concatenate([_x_reference, _dx_reference, _y_reference, _dy_reference], axis=0)
 
         # Objective Function:
-        _objective_function = (_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_dx - _dx_reference) ** 2 + (
-                _dy - _dy_reference) ** 2 + (_f_x ** 2 + _f_y ** 2)
+        _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_dx - _dx_reference) ** 2 
+                        + (_dy - _dy_reference) ** 2 + (_f_x ** 2 + _f_y ** 2))
         _objective_function = numpy.sum(_objective_function)
 
         # Compute Hessian:
@@ -90,12 +90,12 @@ class Drone:
         # Initial Conditions Constraints:
         _initial_condition = sympy.symarray('initial_condition', _number_of_states)
         _initial_conditions = numpy.concatenate(
-            (_q[0, :] - _initial_condition[:2], _dq[0, :] - _initial_condition[2:])).flatten(order='F')
+                        (_q[0, :] - _initial_condition[:2], _dq[0, :] - _initial_condition[2:])).flatten(order='F')
         _A_initial_conditions, _b_initial_conditions = sympy.linear_eq_to_matrix(_initial_conditions, _z)
         _b_initial_conditions = _b_initial_conditions.flatten(order='F')
         self._A_initial_conditions = scipy.sparse.csc_matrix(_A_initial_conditions, dtype=float)
         self.initial_condition_constraint = staticmethod(
-            sympy.lambdify([_initial_condition], _b_initial_conditions, 'numpy'))
+                        sympy.lambdify([_initial_condition], _b_initial_conditions, 'numpy'))
 
         # Inequality Constraints:
         # Variable Bounds:
@@ -116,6 +116,33 @@ class Drone:
         _A_variable_bounds, _ = sympy.linear_eq_to_matrix(_design_variable_bound, _z)
         self._A_variable_bounds = scipy.sparse.csc_matrix(_A_variable_bounds, dtype=float)
         self._design_variable_bound = _design_variable_bound
+
+        # Initialize QP:
+
+        # Update Linear Terms:
+        self.q = self.f(self.reference_trajectory)
+
+        # Updates Equality Constraints:
+        _A_equality = scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
+        _b_initial_conditions = self.initial_condition_constraint(self.x0)
+        _lower_equality = numpy.concatenate([self._b_collocation, _b_initial_conditions], axis=0)
+        _upper_equality = _lower_equality
+
+        # Update Inequality Constraints:
+        _A_inequality = self._A_variable_bounds
+        _lower_inequality = self._design_variable_bound
+        _upper_inequality = self._design_variable_bound
+
+        # Combine Constraints:
+        self.A = scipy.sparse.vstack([_A_equality, _A_inequality])
+        self.l = numpy.concatenate([_lower_equality, _lower_inequality], axis=0)
+        self.u = numpy.concatenate([_upper_equality, _upper_inequality], axis=0)
+
+        # Create QP Object:
+        self.qp = osqp.OSQP()
+        self.qp.setup(self.H, self.q, self.A, self.l, self.u, warm_start=True)
+
+
 
     def update_optimization(self):
         """
@@ -140,3 +167,17 @@ class Drone:
         self.A = scipy.sparse.vstack([_A_equality, _A_inequality])
         self.l = numpy.concatenate([_lower_equality, _lower_inequality], axis=0)
         self.u = numpy.concatenate([_upper_equality, _upper_inequality], axis=0)
+
+        self.qp.update()
+
+
+    def generate_trajectory(self):
+        """
+        Generate Drone Trajectory:
+        """
+
+        # Run OSQP:
+        self.solution = self.qp.solve(l=self.l, u=self.u)
+        
+        # Update x0: (Simulation Only)
+        self.x0 = self.solution
