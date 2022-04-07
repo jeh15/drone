@@ -54,8 +54,12 @@ class Drone(object):
         _reference_trajectory = self.numpy.concatenate([_x_reference, _dx_reference, _y_reference, _dy_reference], axis=0)
 
         # Objective Function:
-        _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_dx - _dx_reference) ** 2 
+        _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_dx - _dx_reference) ** 2
                         + (_dy - _dy_reference) ** 2 + (_f_x ** 2 + _f_y ** 2))
+
+        # No Velocity Reference trajectory:
+        # _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_f_x ** 2 + _f_y ** 2))
+
         _objective_function = self.numpy.sum(_objective_function)
 
         # Compute Hessian:
@@ -64,6 +68,7 @@ class Drone(object):
         # Compute Gradient:
         _f = [_objective_function.diff(_axis_0) for _axis_0 in _z]
         _f = [_f[_i].subs(_z[_i], 0) for _i in range(_design_vector_length)]
+
 
         # Convert H to self.numpy array:
         _H = self.numpy.asarray(_H, dtype=float)
@@ -182,9 +187,10 @@ class Drone(object):
         # Run OSQP:
         self.solution = self.qp.solve()
 
-        # Reshape and Set Initial Condition:
+        # Reshape and Set Initial Condition: (Initial Condition Order x, y, dx, dy)
         _temp = self.solution.x.reshape((self._design_vector_column_format), order='F')
-        self.initial_condition = _temp[-1, :]
+        _temp = np.array([_temp[-1, 0], _temp[-1, 3], _temp[-1, 1], _temp[-1, 4]])
+        self.initial_condition = _temp
 
         # Update x0: (Simulation Only)
         self.x0 = self.solution.x
