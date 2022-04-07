@@ -1,5 +1,4 @@
 import pdb
-
 import numpy as np
 
 
@@ -10,7 +9,7 @@ class Drone(object):
     scipy = __import__('scipy')
     pdb = __import__('pdb')
 
-    def __init__(self, nodes, x0, desired_trajectory, **kwargs):
+    def __init__(self, nodes, initial_condition, x0, desired_trajectory, **kwargs):
         """
         Initialize Attributes:
         """
@@ -18,6 +17,8 @@ class Drone(object):
         self.nodes = nodes
         self.reference_trajectory = desired_trajectory
         self.x0 = x0
+        self.initial_condition = initial_condition
+        self._design_vector_column_format = 0
 
 
     def initialize_optimization(self):
@@ -47,7 +48,7 @@ class Drone(object):
         _number_of_inputs = 2
         _number_of_design_variables = _number_of_states + _number_of_inputs
         _design_vector_length = len(_z)
-        _design_vector_column_format = (self.nodes, _number_of_design_variables)
+        self._design_vector_column_format = (self.nodes, _number_of_design_variables)
 
         # Reference/Desired Variable Vector:
         _reference_trajectory = self.numpy.concatenate([_x_reference, _dx_reference, _y_reference, _dy_reference], axis=0)
@@ -69,7 +70,7 @@ class Drone(object):
         self.H = self.scipy.sparse.csc_matrix(_H)
 
         # Lambdify f:
-        self.f = staticmethod(self.sympy.lambdify([_reference_trajectory], _f, 'numpy'))
+        self.f = self.sympy.lambdify([_reference_trajectory], _f, 'numpy')
 
         # States:
         _q = self.numpy.stack([_x, _y], axis=1)
@@ -95,13 +96,14 @@ class Drone(object):
         _initial_conditions = self.numpy.concatenate(
                         (_q[0, :] - _initial_condition[:2], _dq[0, :] - _initial_condition[2:])).flatten(order='F')
         _A_initial_conditions, _b_initial_conditions = self.sympy.linear_eq_to_matrix(_initial_conditions, _z)
+        _b_initial_conditions = _b_initial_conditions.reshape(1, len(_b_initial_conditions))
         self._A_initial_conditions = self.scipy.sparse.csc_matrix(_A_initial_conditions, dtype=float)
-        self.initial_condition_constraint = staticmethod(self.sympy.lambdify([_initial_condition], _b_initial_conditions, 'numpy'))
+        self.initial_condition_constraint = self.sympy.lambdify([_initial_condition], _b_initial_conditions,  'numpy')
 
         # Inequality Constraints:
         # Variable Bounds:
         # Pre-allocate Matrix:
-        _design_variable_bound = self.numpy.zeros(_design_vector_column_format)
+        _design_variable_bound = self.numpy.zeros(self._design_vector_column_format)
         # Defaults to Symmetric Bounds:
         position_bound = 10
         velocity_bound = 10
@@ -113,25 +115,25 @@ class Drone(object):
         _design_variable_bound[:, 4] = velocity_bound
         _design_variable_bound[:, 5] = force_bound
         _design_variable_bound = _design_variable_bound.flatten(order='F')
+        self._design_variable_bound = _design_variable_bound
         _design_variable_bound = _z[:] - _design_variable_bound
         _A_variable_bounds, _ = self.sympy.linear_eq_to_matrix(_design_variable_bound, _z)
         self._A_variable_bounds = self.scipy.sparse.csc_matrix(_A_variable_bounds, dtype=float)
-        self._design_variable_bound = _design_variable_bound
 
         # Initialize QP:
 
         # Update Linear Terms:
-        self.q = self.f(self.reference_trajectory)
+        self.q = self.numpy.asarray(self.f(self.reference_trajectory), dtype=float)
 
         # Updates Equality Constraints:
         _A_equality = self.scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
-        _b_initial_conditions = self.initial_condition_constraint(self.x0)
-        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions], axis=0)
+        _b_initial_conditions = self.initial_condition_constraint(self.initial_condition)
+        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')], axis=0)
         _upper_equality = _lower_equality
 
         # Update Inequality Constraints:
         _A_inequality = self._A_variable_bounds
-        _lower_inequality = self._design_variable_bound
+        _lower_inequality = -self._design_variable_bound
         _upper_inequality = self._design_variable_bound
 
         # Combine Constraints:
@@ -151,17 +153,17 @@ class Drone(object):
         """
 
         # Update Linear Terms:
-        self.q = self.f(self.reference_trajectory)
+        self.q = self.numpy.asarray(self.f(self.reference_trajectory), dtype=float)
 
         # Updates Equality Constraints:
         _A_equality = self.scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
-        _b_initial_conditions = self.initial_condition_constraint(self.x0)
-        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions], axis=0)
+        _b_initial_conditions = self.initial_condition_constraint(self.initial_condition)
+        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')], axis=0)
         _upper_equality = _lower_equality
 
         # Update Inequality Constraints:
         _A_inequality = self._A_variable_bounds
-        _lower_inequality = self._design_variable_bound
+        _lower_inequality = -self._design_variable_bound
         _upper_inequality = self._design_variable_bound
 
         # Combine Constraints:
@@ -169,7 +171,7 @@ class Drone(object):
         self.l = self.numpy.concatenate([_lower_equality, _lower_inequality], axis=0)
         self.u = self.numpy.concatenate([_upper_equality, _upper_inequality], axis=0)
 
-        self.qp.update()
+        self.qp.update(l=self.l, u=self.u)
 
 
     def generate_trajectory(self):
@@ -178,7 +180,11 @@ class Drone(object):
         """
 
         # Run OSQP:
-        self.solution = self.qp.solve(l=self.l, u=self.u)
-        
+        self.solution = self.qp.solve()
+
+        # Reshape and Set Initial Condition:
+        _temp = self.solution.x.reshape((self._design_vector_column_format), order='F')
+        self.initial_condition = _temp[-1, :]
+
         # Update x0: (Simulation Only)
-        self.x0 = self.solution
+        self.x0 = self.solution.x

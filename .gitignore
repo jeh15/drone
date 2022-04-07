@@ -4,6 +4,9 @@
 # Mark Up Images Folder:
 images/
 
+# Video Files:
+*.mp4
+
 # User-specific stuff
 .idea/
 .idea/**/workspace.xml
