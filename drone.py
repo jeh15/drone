@@ -1,4 +1,5 @@
 import pdb
+
 import numpy as np
 
 
@@ -19,7 +20,6 @@ class Drone(object):
         self.x0 = x0
         self.initial_condition = initial_condition
         self._design_vector_column_format = 0
-
 
     def initialize_optimization(self):
         """
@@ -51,11 +51,12 @@ class Drone(object):
         self._design_vector_column_format = (self.nodes, _number_of_design_variables)
 
         # Reference/Desired Variable Vector:
-        _reference_trajectory = self.numpy.concatenate([_x_reference, _dx_reference, _y_reference, _dy_reference], axis=0)
+        _reference_trajectory = self.numpy.concatenate([_x_reference, _dx_reference, _y_reference, _dy_reference],
+                                                       axis=0)
 
         # Objective Function:
         _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_dx - _dx_reference) ** 2
-                        + (_dy - _dy_reference) ** 2 + (_f_x ** 2 + _f_y ** 2))
+                               + (_dy - _dy_reference) ** 2 + (_f_x ** 2 + _f_y ** 2))
 
         # No Velocity Reference trajectory:
         # _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_f_x ** 2 + _f_y ** 2))
@@ -68,7 +69,6 @@ class Drone(object):
         # Compute Gradient:
         _f = [_objective_function.diff(_axis_0) for _axis_0 in _z]
         _f = [_f[_i].subs(_z[_i], 0) for _i in range(_design_vector_length)]
-
 
         # Convert H to self.numpy array:
         _H = self.numpy.asarray(_H, dtype=float)
@@ -99,11 +99,11 @@ class Drone(object):
         # Initial Conditions Constraints:
         _initial_condition = self.sympy.symarray('initial_condition', _number_of_states)
         _initial_conditions = self.numpy.concatenate(
-                        (_q[0, :] - _initial_condition[:2], _dq[0, :] - _initial_condition[2:])).flatten(order='F')
+            (_q[0, :] - _initial_condition[:2], _dq[0, :] - _initial_condition[2:])).flatten(order='F')
         _A_initial_conditions, _b_initial_conditions = self.sympy.linear_eq_to_matrix(_initial_conditions, _z)
         _b_initial_conditions = _b_initial_conditions.reshape(1, len(_b_initial_conditions))
         self._A_initial_conditions = self.scipy.sparse.csc_matrix(_A_initial_conditions, dtype=float)
-        self.initial_condition_constraint = self.sympy.lambdify([_initial_condition], _b_initial_conditions,  'numpy')
+        self.initial_condition_constraint = self.sympy.lambdify([_initial_condition], _b_initial_conditions, 'numpy')
 
         # Inequality Constraints:
         # Variable Bounds:
@@ -133,7 +133,8 @@ class Drone(object):
         # Updates Equality Constraints:
         _A_equality = self.scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
         _b_initial_conditions = self.initial_condition_constraint(self.initial_condition)
-        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')], axis=0)
+        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')],
+                                                 axis=0)
         _upper_equality = _lower_equality
 
         # Update Inequality Constraints:
@@ -150,8 +151,6 @@ class Drone(object):
         self.qp = self.osqp.OSQP()
         self.qp.setup(self.H, self.q, self.A, self.l, self.u, warm_start=True)
 
-
-
     def update_optimization(self):
         """
         Update Optimization:
@@ -163,7 +162,8 @@ class Drone(object):
         # Updates Equality Constraints:
         _A_equality = self.scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
         _b_initial_conditions = self.initial_condition_constraint(self.initial_condition)
-        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')], axis=0)
+        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')],
+                                                 axis=0)
         _upper_equality = _lower_equality
 
         # Update Inequality Constraints:
@@ -177,7 +177,6 @@ class Drone(object):
         self.u = self.numpy.concatenate([_upper_equality, _upper_inequality], axis=0)
 
         self.qp.update(l=self.l, u=self.u)
-
 
     def generate_trajectory(self):
         """

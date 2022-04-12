@@ -10,8 +10,9 @@ number_of_states = 6
 x0 = numpy.zeros((nodes * number_of_states, 1))
 initial_conditions = numpy.array([0, 0, 0, 0], dtype=float)
 desired_trajectory = numpy.concatenate((numpy.ones((nodes,)), numpy.zeros((nodes,)), numpy.ones((nodes,)), numpy.zeros((nodes,))), axis=0)
-iteration_range = 20
+iteration_range = 30
 history = []
+run_time = 0.0
 
 # Initialize Drone Object:
 agent = drone.Drone(nodes, initial_conditions, x0, desired_trajectory)
@@ -26,7 +27,13 @@ for i in range(iteration_range):
     agent.generate_trajectory()
     # Create Solution History:
     history.append(numpy.reshape(agent.solution.x, (nodes, number_of_states), order='F'))
+    # Run Time:
+    run_time = run_time + agent.solution.info.run_time
 
+
+"""
+Plots:
+"""
 # Setup Animation Writer:
 FPS = 20
 dpi = 300
@@ -62,3 +69,4 @@ with writerObj.saving(fig, video_title+".mp4", dpi):
             fig.canvas.draw()
             # Grab and Save Frame:
             writerObj.grab_frame()
+
