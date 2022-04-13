@@ -6,10 +6,11 @@ from matplotlib.patches import Circle
 import drone
 
 nodes = 21
-number_of_states = 6
+number_of_states = 9
 x0 = numpy.zeros((nodes * number_of_states, 1))
-initial_conditions = numpy.array([0, 0, 0, 0], dtype=float)
-desired_trajectory = numpy.concatenate((numpy.ones((nodes,)), numpy.zeros((nodes,)), numpy.ones((nodes,)), numpy.zeros((nodes,))), axis=0)
+initial_conditions = numpy.array([0, 0, 0, 0, 0, 0], dtype=float)
+desired_trajectory = numpy.concatenate((numpy.ones((nodes,)), numpy.zeros((nodes,)), numpy.ones((nodes,)),
+                                        numpy.zeros((nodes,)), numpy.zeros((nodes,)), numpy.zeros((nodes,))), axis=0)
 iteration_range = 30
 history = []
 run_time = 0.0
@@ -30,6 +31,7 @@ for i in range(iteration_range):
     # Run Time:
     run_time = run_time + agent.solution.info.run_time
 
+print(run_time / iteration_range)
 
 """
 Plots:
@@ -60,7 +62,7 @@ goal_patch = Circle((1, 1), radius=0.1, color='red', zorder=1)
 ax.add_patch(goal_patch)
 
 # Plot and Create Animation:
-with writerObj.saving(fig, video_title+".mp4", dpi):
+with writerObj.saving(fig, video_title + ".mp4", dpi):
     for i in range(iteration_range):
         for j in range(0, nodes):
             # Draw Pendulum Arm:
