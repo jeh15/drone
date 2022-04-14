@@ -1,6 +1,3 @@
-import numpy as np
-
-
 class Drone(object):
     """
     Class Dependent Libraries:
@@ -156,8 +153,8 @@ class Drone(object):
 
         _A_halfspace, _b_halfspace = self.sympy.linear_eq_to_matrix(_hyperplane_constraint, _X)
 
-        _replacements = self.numpy.concatenate([_direction_vector.reshape(1, len(_direction_vector)),
-                                                _adversary_position.reshape(1, len(_adversary_position))], axis=0)
+        _replacements = self.numpy.concatenate((_direction_vector.flatten(order='C'),
+                                                _adversary_position.flatten(order='C')), axis=0)
         # We could initialize all of these... (TO DO PREALLOCATE ALL ARRAY OPERATIONS)
         self._A_halfspace = self.sympy.lambdify([_replacements], _A_halfspace, 'numpy')
         self._b_halfspace = self.sympy.lambdify([_replacements], _b_halfspace, 'numpy')
@@ -170,27 +167,27 @@ class Drone(object):
         self.q = self.numpy.asarray(self.f(self.reference_trajectory), dtype=float)
 
         # Updates Equality Constraints:
-        _A_equality = self.scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
+        _A_equality = self.scipy.sparse.vstack((self._A_collocation, self._A_initial_conditions))
         _b_initial_conditions = self.initial_condition_constraint(self.initial_condition)
-        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')],
+        _lower_equality = self.numpy.concatenate((self._b_collocation, _b_initial_conditions.flatten(order='F')),
                                                  axis=0)
         _upper_equality = _lower_equality
 
         # Update Inequality Constraints:
         self._direction_vector[:, :] = self.adversary_position - self.position
-        _replacements = self.numpy.concatenate([self._direction_vector.flatten(order='C'),
-                                                self.adversary_position.flatten(order='C')], axis=0)
-        _A_halfspace = self._A_halfspace(_replacements)
-        _upper_halfspace = self._b_halfspace(_replacements)
-        _lower_halfspace = -self.numpy.inf * self.numpy.ones(self.numpy.shape(_upper_halfspace))
-        _A_inequality = self.scipy.sparse.vstack([self._A_variable_bounds, _A_halfspace])
-        _lower_inequality = self.numpy.concatenate([-self._design_variable_bound, _lower_halfspace], axis=0)
-        _upper_inequality = self.numpy.concatenate([self._design_variable_bound, _upper_halfspace], axis=0)
+        _replacements = self.numpy.concatenate((self._direction_vector.flatten(order='C'),
+                                                self.adversary_position.flatten(order='C')), axis=0)
+        _A_halfspace = self.scipy.sparse.csc_matrix(self._A_halfspace(_replacements))
+        _upper_halfspace = (self._b_halfspace(_replacements)).flatten(order='F')
+        self._lower_halfspace = (-self.numpy.inf * self.numpy.ones(self.numpy.shape(_upper_halfspace))).flatten(order='F')
+        _A_inequality = self.scipy.sparse.vstack((self._A_variable_bounds, _A_halfspace))
+        _lower_inequality = self.numpy.concatenate((-self._design_variable_bound, self._lower_halfspace), axis=0)
+        _upper_inequality = self.numpy.concatenate((self._design_variable_bound, _upper_halfspace), axis=0)
 
         # Combine Constraints:
-        self.A = self.scipy.sparse.vstack([_A_equality, _A_inequality])
-        self.l = self.numpy.concatenate([_lower_equality, _lower_inequality], axis=0)
-        self.u = self.numpy.concatenate([_upper_equality, _upper_inequality], axis=0)
+        self.A = self.scipy.sparse.vstack((_A_equality, _A_inequality))
+        self.l = self.numpy.concatenate((_lower_equality, _lower_inequality), axis=0)
+        self.u = self.numpy.concatenate((_upper_equality, _upper_inequality), axis=0)
 
         # Create QP Object:
         self.qp = self.osqp.OSQP()
@@ -205,23 +202,29 @@ class Drone(object):
         self.q = self.numpy.asarray(self.f(self.reference_trajectory), dtype=float)
 
         # Updates Equality Constraints:
-        _A_equality = self.scipy.sparse.vstack([self._A_collocation, self._A_initial_conditions])
+        _A_equality = self.scipy.sparse.vstack((self._A_collocation, self._A_initial_conditions))
         _b_initial_conditions = self.initial_condition_constraint(self.initial_condition)
-        _lower_equality = self.numpy.concatenate([self._b_collocation, _b_initial_conditions.flatten(order='F')],
+        _lower_equality = self.numpy.concatenate((self._b_collocation, _b_initial_conditions.flatten(order='F')),
                                                  axis=0)
         _upper_equality = _lower_equality
 
         # Update Inequality Constraints:
-        _A_inequality = self._A_variable_bounds
-        _lower_inequality = -self._design_variable_bound
-        _upper_inequality = self._design_variable_bound
+        self.get_adversary_info()
+        self._direction_vector[:, :] = self.adversary_position - self.position
+        _replacements = self.numpy.concatenate((self._direction_vector.flatten(order='C'),
+                                                self.adversary_position.flatten(order='C')), axis=0)
+        _A_halfspace = self.scipy.sparse.csc_matrix(self._A_halfspace(_replacements))
+        _upper_halfspace = (self._b_halfspace(_replacements)).flatten(order='F')
+        _A_inequality = self.scipy.sparse.vstack((self._A_variable_bounds, _A_halfspace))
+        _lower_inequality = self.numpy.concatenate((-self._design_variable_bound, self._lower_halfspace), axis=0)
+        _upper_inequality = self.numpy.concatenate((self._design_variable_bound, _upper_halfspace), axis=0)
 
         # Combine Constraints: (A Needs to be updated for Half-space constraints)
-        self.A = self.scipy.sparse.vstack([_A_equality, _A_inequality])
-        self.l = self.numpy.concatenate([_lower_equality, _lower_inequality], axis=0)
-        self.u = self.numpy.concatenate([_upper_equality, _upper_inequality], axis=0)
+        self.A = self.scipy.sparse.vstack((_A_equality, _A_inequality))
+        self.l = self.numpy.concatenate((_lower_equality, _lower_inequality), axis=0)
+        self.u = self.numpy.concatenate((_upper_equality, _upper_inequality), axis=0)
 
-        self.qp.update(l=self.l, u=self.u)
+        self.qp.update(Ax=self.A.data, l=self.l, u=self.u)
 
     def get_halfspace_constraints(self):
         """
@@ -250,9 +253,9 @@ class Drone(object):
         # Reshape and Set Initial Condition: (Initial Condition Order x, y, z, dx, dy, dz)
         _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
         # Position and Velocity Data Format = [x; y; z] / [dx; dy; dz]
-        self.position[:, :] = self.numpy.vstack([_temp[:, 0], _temp[:, 3], _temp[:, 6]], axis=1)
-        self.velocity[:, :] = self.numpy.vstack([_temp[:, 1], _temp[:, 4], _temp[:, 7]], axis=1)
-        _temp = self.numpy.array([_temp[-1, 0], _temp[-1, 3], _temp[-1, 6], _temp[-1, 1], _temp[-1, 4], _temp[-1, 7]])
+        self.position[:, :] = self.numpy.vstack((_temp[:, 0], _temp[:, 3], _temp[:, 6]))
+        self.velocity[:, :] = self.numpy.vstack((_temp[:, 1], _temp[:, 4], _temp[:, 7]))
+        _temp = self.numpy.array((_temp[-1, 0], _temp[-1, 3], _temp[-1, 6], _temp[-1, 1], _temp[-1, 4], _temp[-1, 7]))
         self.initial_condition = _temp
 
         # Update x0: (Simulation Only)

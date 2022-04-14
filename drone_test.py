@@ -8,7 +8,8 @@ import drone
 nodes = 21
 number_of_states = 9
 x0 = numpy.zeros((nodes * number_of_states, 1))
-initial_conditions = numpy.array([0, 0, 0, 0, 0, 0], dtype=float)
+# initial_conditions Data format: [x, y, z, dx, dy, dz]
+initial_conditions = numpy.array([-1, -1, 0, 0, 0, 0], dtype=float)
 desired_trajectory = numpy.concatenate((numpy.ones((nodes,)), numpy.zeros((nodes,)), numpy.ones((nodes,)),
                                         numpy.zeros((nodes,)), numpy.zeros((nodes,)), numpy.zeros((nodes,))), axis=0)
 iteration_range = 30
