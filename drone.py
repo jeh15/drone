@@ -7,6 +7,7 @@ class Drone(object):
     sympy = __import__('sympy')
     osqp = __import__('osqp')
     scipy = __import__('scipy')
+    interpolate = __import__('scipy.interpolate')
     pdb = __import__('pdb')
 
     def __init__(self, nodes, initial_condition, x0, desired_trajectory, **kwargs):
@@ -20,6 +21,7 @@ class Drone(object):
         self.x0 = x0
         self.initial_condition = initial_condition
         self._design_vector_column_format = 0
+        self.control_horizon = self.numpy.zeros((3, 2))  # [f_x[:2]; f_y[:2]; f_z[:2]]
 
         # Initialize Matrices: (Private)
         self._direction_vector = self.numpy.zeros((3, self.nodes))
@@ -250,13 +252,29 @@ class Drone(object):
         # Run OSQP:
         self.solution = self.qp.solve()
 
-        # Reshape and Set Initial Condition: (Initial Condition Order x, y, z, dx, dy, dz)
+        # Set Temporary Variable to hold Solution formatted Column-wise:
+        # _temp data format: [x, dx, f_x, y, dy, f_y, z, dz, f_z]
         _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
-        # Position and Velocity Data Format = [x; y; z] / [dx; dy; dz]
-        self.position[:, :] = self.numpy.vstack((_temp[:, 0], _temp[:, 3], _temp[:, 6]))
-        self.velocity[:, :] = self.numpy.vstack((_temp[:, 1], _temp[:, 4], _temp[:, 7]))
-        _temp = self.numpy.array((_temp[-1, 0], _temp[-1, 3], _temp[-1, 6], _temp[-1, 1], _temp[-1, 4], _temp[-1, 7]))
-        self.initial_condition = _temp
+
+        self.pdb.set_trace()
+        # Set Next Control Trajectory:
+        self.control_horizon[:, :] = self.numpy.array((_temp[:2, 2], _temp[:2, 5], _temp[:2, 8]), dtype=float)
+        self.control_function = 
+        # Reshape and Set Initial Condition: (Initial Condition Order x, y, z, dx, dy, dz)
+        # _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
+        # # Position and Velocity Data Format = [x; y; z] / [dx; dy; dz]
+        # self.position[:, :] = self.numpy.vstack((_temp[:, 0], _temp[:, 3], _temp[:, 6]))
+        # self.velocity[:, :] = self.numpy.vstack((_temp[:, 1], _temp[:, 4], _temp[:, 7]))
+        # _temp = self.numpy.array((_temp[-1, 0], _temp[-1, 3], _temp[-1, 6], _temp[-1, 1], _temp[-1, 4], _temp[-1, 7]))
+        # self.initial_condition = _temp
 
         # Update x0: (Simulation Only)
         self.x0 = self.solution.x
+
+    def simulate(self):
+        self.control_horizon
+
+    # solve_ivp(fun=lambda t, y: fun(t, y, *args), ...)
+    @staticmethod
+    def ode_func(t, y, self):
+        u = self.scipy.interpolate.interp1d(t, self.control_horizon)
