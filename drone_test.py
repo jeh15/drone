@@ -5,6 +5,8 @@ from matplotlib.patches import Circle
 
 import drone
 
+import pdb
+
 nodes = 21
 number_of_states = 9
 x0 = numpy.zeros((nodes * number_of_states, 1))
@@ -15,6 +17,7 @@ desired_trajectory = numpy.concatenate((numpy.ones((nodes,)), numpy.zeros((nodes
                                         numpy.zeros((nodes,)), numpy.zeros((nodes,)), numpy.zeros((nodes,))), axis=0)
 iteration_range = 30
 history = []
+trajectory = []
 run_time = 0.0
 
 # Initialize Drone Object:
@@ -28,8 +31,11 @@ for i in range(iteration_range):
     agent.update_optimization()
     # Generate Trajectory:
     agent.generate_trajectory()
+    # Simulate Agent:
+    agent.simulate()
     # Create Solution History:
-    history.append(numpy.reshape(agent.solution.x, (nodes, number_of_states), order='F'))
+    history.append(agent.simulation_solution.y)
+    trajectory.append(agent.position.copy())
     # Run Time:
     run_time = run_time + agent.solution.info.run_time
 
@@ -70,9 +76,10 @@ ax.add_patch(obstacle_patch)
 # Plot and Create Animation:
 with writerObj.saving(fig, video_title + ".mp4", dpi):
     for i in range(iteration_range):
-        for j in range(0, nodes):
+        for j in range(0, 21):
             # Draw Pendulum Arm:
-            agent_patch.center = (history[i][j, 0], history[i][j, 3])
+            agent_patch.center = (history[i][0, j], history[i][1, j])
+            p1.set_data(trajectory[i][0, :], trajectory[i][1, :])
             # Update Drawing:
             fig.canvas.draw()
             # Grab and Save Frame:

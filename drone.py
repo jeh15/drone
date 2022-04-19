@@ -7,6 +7,7 @@ class Drone(object):
     sympy = __import__('sympy')
     osqp = __import__('osqp')
     scipy = __import__('scipy')
+    integrate = __import__('scipy.integrate')
     interpolate = __import__('scipy.interpolate')
     pdb = __import__('pdb')
 
@@ -14,6 +15,8 @@ class Drone(object):
         """
         Initialize Attributes:
         """
+        # Constant Attributes
+        self.mass = 1.0
 
         # Set Attributes:
         self.nodes = nodes
@@ -25,10 +28,13 @@ class Drone(object):
 
         # Initialize Matrices: (Private)
         self._direction_vector = self.numpy.zeros((3, self.nodes))
-        self.position = self.numpy.zeros((3, self.nodes))  # INITIALIZE WITH x0
-        self.velocity = self.numpy.zeros((3, self.nodes))  # INITIALIZE WITH x0
+        self.position = self.numpy.einsum("ij, i->ij", self.numpy.ones((3, self.nodes)), self.initial_condition[:3])
+        self.velocity = self.numpy.einsum("ij, i->ij", self.numpy.ones((3, self.nodes)), self.initial_condition[3:])
         self.adversary_position = self.numpy.zeros((3, self.nodes))
         self.adversary_velocity = 0.0
+
+        # Initialize Attributues:
+        self.simulation_solution = None
 
     def initialize_optimization(self):
         """
@@ -94,8 +100,10 @@ class Drone(object):
         _u = self.numpy.stack([_f_x, _f_y, _f_z], axis=1)
 
         # Planning Horizon:
-        _planning_horizon = 1
-        self.dt = _planning_horizon / (self.nodes - 1)
+        self._planning_horizon = 1
+        self.dt = self._planning_horizon / (self.nodes - 1)
+        self.tspan = [0.0, 2 * self.dt]
+        self.t_eval = self.numpy.linspace(0, 2 * self.dt, 21)
 
         """
         Equality Constraints:
@@ -228,13 +236,14 @@ class Drone(object):
 
         self.qp.update(Ax=self.A.data, l=self.l, u=self.u)
 
-    def get_halfspace_constraints(self):
-        """
-        Generate Half-Space Constraints:
-        """
-        self.get_adversary_info()
-        # direction vector data format: [nx; ny; nz]
-        self._direction_vector[:, :] = self.adversary_position - self.position
+
+    # def get_halfspace_constraints(self):
+    #     """
+    #     Generate Half-Space Constraints:
+    #     """
+    #     self.get_adversary_info()
+    #     # direction vector data format: [nx; ny; nz]
+    #     self._direction_vector[:, :] = self.adversary_position - self.position
 
     def get_adversary_info(self):
         """
@@ -256,10 +265,10 @@ class Drone(object):
         # _temp data format: [x, dx, f_x, y, dy, f_y, z, dz, f_z]
         _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
 
-        self.pdb.set_trace()
         # Set Next Control Trajectory:
         self.control_horizon[:, :] = self.numpy.array((_temp[:2, 2], _temp[:2, 5], _temp[:2, 8]), dtype=float)
-        self.control_function = 
+        self.control_function = self.scipy.interpolate.interp1d(self.tspan, self.control_horizon)
+
         # Reshape and Set Initial Condition: (Initial Condition Order x, y, z, dx, dy, dz)
         # _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
         # # Position and Velocity Data Format = [x; y; z] / [dx; dy; dz]
@@ -269,12 +278,26 @@ class Drone(object):
         # self.initial_condition = _temp
 
         # Update x0: (Simulation Only)
+        self.position[:, :] = self.numpy.vstack((_temp[:, 0], _temp[:, 3], _temp[:, 6]))
+        self.velocity[:, :] = self.numpy.vstack((_temp[:, 1], _temp[:, 4], _temp[:, 7]))
         self.x0 = self.solution.x
 
     def simulate(self):
-        self.control_horizon
+        # solve_ivp(fun=lambda t, y: fun(t, y, *args), ...)
+        self.simulation_solution = self.scipy.integrate.solve_ivp(lambda t, y: self.ode_func(t, y, self), self.tspan,
+                                                                  self.initial_condition, method='RK45',
+                                                                  t_eval=self.t_eval, vectorized=True)
+        # initial_conditions Data format: [x, y, z, dx, dy, dz]
+        self.initial_condition[:] = self.simulation_solution.y[:, -1]
 
-    # solve_ivp(fun=lambda t, y: fun(t, y, *args), ...)
     @staticmethod
     def ode_func(t, y, self):
-        u = self.scipy.interpolate.interp1d(t, self.control_horizon)
+        u = self.control_function(t)
+        dx = y[3]
+        ddx = u[0] / self.mass
+        dy = y[4]
+        ddy = u[1] / self.mass
+        dz = y[5]
+        ddz = u[2] / self.mass
+        return [dx, dy, dz, ddx, ddy, ddz]
+
