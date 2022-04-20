@@ -236,6 +236,8 @@ class Drone(object):
 
         self.qp.update(Ax=self.A.data, l=self.l, u=self.u)
 
+        self.plot_A = self._A_halfspace(_replacements)
+        self.plot_b = self._b_halfspace(_replacements)
 
     # def get_halfspace_constraints(self):
     #     """
