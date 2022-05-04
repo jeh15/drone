@@ -15,7 +15,7 @@ initial_conditions = numpy.array([-1, -1, 0, 0, 0, 0], dtype=float)
 # desired_trajectory Data format: [x, dx, y, dy, z, dz]
 desired_trajectory = numpy.concatenate((numpy.ones((nodes,)), numpy.zeros((nodes,)), numpy.ones((nodes,)),
                                         numpy.zeros((nodes,)), numpy.zeros((nodes,)), numpy.zeros((nodes,))), axis=0)
-iteration_range = 30
+iteration_range = 50
 history = []
 trajectory = []
 constraint_history = []

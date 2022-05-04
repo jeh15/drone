@@ -35,6 +35,13 @@ class Drone_Risk(object):
         self.adversary_velocity = 0.0
         # risk_function format = [slope, y-intercept]
         self.risk_function = self.numpy.zeros((self.spline_resolution, 2))
+        # Regression Matrices
+        self._H_regression = self.numpy.zeros((self.spline_resolution+1, self.spline_resolution+1), dtype=float)
+        self._f_regression = self.numpy.zeros((self.spline_resolution+1,) , dtype=float)
+        self._H_block = self.numpy.zeros((2, 2), dtype=float)
+        self._f_block = self.numpy.zeros((2,), dtype=float)
+        self.risk_regression_y = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        self.risk_regression_x = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
 
         # Initialize Attributues:
         self.simulation_solution = None
@@ -82,7 +89,10 @@ class Drone_Risk(object):
             [_x_reference, _dx_reference, _y_reference, _dy_reference, _z_reference, _dz_reference], axis=0)
 
         # Objective Function:
-        _objective_function = ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_f_x ** 2 + _f_y ** 2)) - _S
+        _weight_distance = 10.0
+        _weight_force = 1.0
+        _objective_function = _weight_distance * ((_x - _x_reference) ** 2 + (_y - _y_reference) ** 2 + (_z - _z_reference) ** 2) \
+                            + _weight_force * (_f_x ** 2 + _f_y ** 2) - _S
 
         _objective_function = self.numpy.sum(_objective_function)
 
@@ -92,6 +102,20 @@ class Drone_Risk(object):
         # Compute Gradient:
         _f = [_objective_function.diff(_axis_0) for _axis_0 in _X]
         _f = [_f[_i].subs(_X[_i], 0) for _i in range(_design_vector_length)]
+        self.pdb.set_trace()
+
+        # Speed this up?
+        for _i in range(_design_vector_length):
+            _eval = _f[_i]
+            for _j in range(_design_vector_length):
+                _eval = _eval.subs(_X[_j], 0)
+            _f[_i] = _eval
+
+        # OLD: Sympy Sucks and can't handle this...
+        # _f = [_f[_i].subs(_X[_i], 0) for _i in range(_design_vector_length)]
+
+        # Check if linear terms are being computed correctly...
+        self.pdb.set_trace()
 
         # Convert H to self.numpy array:
         _H = self.numpy.asarray(_H, dtype=float)
@@ -106,7 +130,7 @@ class Drone_Risk(object):
         _u = self.numpy.stack([_f_x, _f_y, _f_z], axis=1)
 
         # Planning Horizon:
-        self._planning_horizon = 1
+        self._planning_horizon = 1.0
         self.dt = self._planning_horizon / (self.nodes - 1)
         self.tspan = [0.0, 2 * self.dt]
         self.t_eval = self.numpy.linspace(0, 2 * self.dt, 21)
@@ -278,14 +302,6 @@ class Drone_Risk(object):
 
         self.qp.update(Ax=self.A.data, l=self.l, u=self.u)
 
-    # def get_halfspace_constraints(self):
-    #     """
-    #     Generate Half-Space Constraints:
-    #     """
-    #     self.get_adversary_info()
-    #     # direction vector data format: [nx; ny; nz]
-    #     self._direction_vector[:, :] = self.adversary_position - self.position
-
     def get_adversary_info(self):
         """
         Get current adversary information from VICON.
@@ -330,6 +346,50 @@ class Drone_Risk(object):
                                                                   t_eval=self.t_eval, vectorized=True)
         # initial_conditions Data format: [x, y, z, dx, dy, dz]
         self.initial_condition[:] = self.simulation_solution.y[:, -1]
+
+    def initialize_risk_regression(self):
+        # TO DO: Build the optimization...
+
+    def get_Objective(self):
+        # Data Point Locations:
+        _xd = self.risk_sample[0, :]
+        _yd = self.risk_sample[1, :]
+        self.risk_regression_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution+1)
+        _x = self.risk_regression_x
+
+        # Compute Hessian and Gradient:
+        _j = 0
+        for i in range(len(_xd)):
+            if _xd[i] >= _x[j+1]:
+                self._H_regression[j:j+2, j:j+2] = self._H_regression[j:j+2, j:j+2] + self._H_block
+                self._f_regression[j:j+2] = self._f_regression[j:j+2] + self._f_block
+                j = j + 1
+                self._H_block[:, :] = 0.0
+                self._f_block[:] = 0.0
+
+            if _xd[i] == _x[j]:
+                self._H_block[0, 0] = 2.0
+                self._f_block[0] = -2 * _yd[i]
+            else:
+                span = _x[j] - _x[j+1]
+                span_sq = span ** 2
+                upper_span = _xd[i] - _x[j + 1]
+                lower_span = _xd[i] - _x[j]
+
+                self._H_block[0, 0] = self._H_block[0, 0] + 2 * upper_span ** 2 / span_sq
+                self._H_block[1, 0] = self._H_block[1, 0] + 2 * -lower_span * lower_span / span_sq
+                self._H_block[1, 1] = self._H_block[1, 1] + 2 * -lower_span ** 2 / span_sq
+
+                self._f_block[0] = self._f_block[0] + 2 * _yd[i] * -upper_span / span
+                self._f_block[1] = self._f_block[1] + 2 * _yd[i] * lower_span / span
+
+        # Add End Points:
+        self._H_regression[-1, -1] = self._H_regression[-1, -1] + 2.0
+        self._f_regression[-1] = self._f_regression[-1] - 2.0 * _yd[-1]
+
+        _H = self._H_regression.T + self._H_regression
+        self.numpy.copyto(self._H_regression , (self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_regression))))
+
 
     @staticmethod
     def ode_func(t, y, self):
