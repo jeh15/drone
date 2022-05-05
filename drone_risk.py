@@ -37,11 +37,15 @@ class Drone_Risk(object):
         self.risk_function = self.numpy.zeros((self.spline_resolution, 2))
         # Regression Matrices
         self._H_regression = self.numpy.zeros((self.spline_resolution+1, self.spline_resolution+1), dtype=float)
+        self._H_regression_sparse = 0.0
         self._f_regression = self.numpy.zeros((self.spline_resolution+1,) , dtype=float)
         self._H_block = self.numpy.zeros((2, 2), dtype=float)
         self._f_block = self.numpy.zeros((2,), dtype=float)
         self.risk_regression_y = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
         self.risk_regression_x = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        self._risk_weights = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        # risk sample format: [x values; y values]
+        self.risk_sample = self.numpy.zeros((1, 1), dtype=float)
 
         # Initialize Attributues:
         self.simulation_solution = None
@@ -101,8 +105,6 @@ class Drone_Risk(object):
 
         # Compute Gradient:
         _f = [_objective_function.diff(_axis_0) for _axis_0 in _X]
-        _f = [_f[_i].subs(_X[_i], 0) for _i in range(_design_vector_length)]
-        self.pdb.set_trace()
 
         # Speed this up?
         for _i in range(_design_vector_length):
@@ -113,9 +115,6 @@ class Drone_Risk(object):
 
         # OLD: Sympy Sucks and can't handle this...
         # _f = [_f[_i].subs(_X[_i], 0) for _i in range(_design_vector_length)]
-
-        # Check if linear terms are being computed correctly...
-        self.pdb.set_trace()
 
         # Convert H to self.numpy array:
         _H = self.numpy.asarray(_H, dtype=float)
@@ -326,14 +325,6 @@ class Drone_Risk(object):
         self.control_horizon[:, :] = self.numpy.array((_temp[:2, 2], _temp[:2, 5], _temp[:2, 8]), dtype=float)
         self.control_function = self.scipy.interpolate.interp1d(self.tspan, self.control_horizon)
 
-        # Reshape and Set Initial Condition: (Initial Condition Order x, y, z, dx, dy, dz)
-        # _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
-        # # Position and Velocity Data Format = [x; y; z] / [dx; dy; dz]
-        # self.position[:, :] = self.numpy.vstack((_temp[:, 0], _temp[:, 3], _temp[:, 6]))
-        # self.velocity[:, :] = self.numpy.vstack((_temp[:, 1], _temp[:, 4], _temp[:, 7]))
-        # _temp = self.numpy.array((_temp[-1, 0], _temp[-1, 3], _temp[-1, 6], _temp[-1, 1], _temp[-1, 4], _temp[-1, 7]))
-        # self.initial_condition = _temp
-
         # Update x0: (Simulation Only)
         self.position[:, :] = self.numpy.vstack((_temp[:, 0], _temp[:, 3], _temp[:, 6]))
         self.velocity[:, :] = self.numpy.vstack((_temp[:, 1], _temp[:, 4], _temp[:, 7]))
@@ -347,48 +338,90 @@ class Drone_Risk(object):
         # initial_conditions Data format: [x, y, z, dx, dy, dz]
         self.initial_condition[:] = self.simulation_solution.y[:, -1]
 
-    def initialize_risk_regression(self):
-        # TO DO: Build the optimization...
+    def get_failure_probability_function(self):
+        # Update H and f matrices for risk regression:
+        self.get_objective()
+        # Update Problem Matrices:
+        self.risk_regression.update(Px=self._H_regression, q=self._f_regression)
+        # Solve Optimization:
+        self.risk_regression_solution = self.risk_regression.solve()
+        self.risk_regression_y = self.risk_regression_solution.x[:]
 
-    def get_Objective(self):
+    def initialize_risk_regression(self):
+        # Update H and f matrices for risk regression:
+        self.get_objective()
+        # Make Triangular Matrix Full and Convert to CSC Format:
+        _H = self._H_regression.T + self._H_regression
+        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_regression))
+        self._H_regression_sparse = self.scipy.sparse.csc_matrix(_H)
+        # Get A Matrix, lower, and upper bounds:
+        _A = self.scipy.sparse.eye(self.spline_resolution+1, format='csc')
+        _l = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        _u = self.numpy.ones((self.spline_resolution+1,), dtype=float)
+        # Initialize Failure Probability Regression:
+        self.risk_regression = self.osqp.OSQP()
+        # Setup Problem:
+        self.risk_regression.setup(self._H_regression_sparse, self._f_regression, _A, _l, _u, warm_start=True)
+
+    def get_objective(self):
         # Data Point Locations:
         _xd = self.risk_sample[0, :]
         _yd = self.risk_sample[1, :]
         self.risk_regression_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution+1)
         _x = self.risk_regression_x
 
+        # Reset Matrices:
+        self._H_regression[:, :] = 0.0
+        self._f_regression[:] = 0.0
+
+        # Find the weights of each spline:
+        _risk_weights = self.numpy.zeros((self.spline_resolution,))
+        for _k in range(self.spline_resolution):
+            _risk_weights[_k] = self.numpy.sum((_xd[:] > _x[_k]) & (_xd[:] <= _x[_k+1]))
+
+        for _k in range(self.spline_resolution+1):
+            if _k == 0:
+                self._risk_weights[_k] = _risk_weights[0]
+            elif _k == self.spline_resolution:
+                self._risk_weights[_k] = _risk_weights[-1]
+            else:
+                self._risk_weights[_k] = _risk_weights[_k-1] + _risk_weights[_k]
+
         # Compute Hessian and Gradient:
-        _j = 0
+        j = 0
         for i in range(len(_xd)):
             if _xd[i] >= _x[j+1]:
-                self._H_regression[j:j+2, j:j+2] = self._H_regression[j:j+2, j:j+2] + self._H_block
-                self._f_regression[j:j+2] = self._f_regression[j:j+2] + self._f_block
+                self._H_regression[j:j+2, j:j+2] = self._H_regression[j:j+2, j:j+2] + self._risk_weights[j] * self._H_block
+                self._f_regression[j:j+2] = self._f_regression[j:j+2] + self._risk_weights[j] * self._f_block
                 j = j + 1
                 self._H_block[:, :] = 0.0
                 self._f_block[:] = 0.0
 
             if _xd[i] == _x[j]:
                 self._H_block[0, 0] = 2.0
-                self._f_block[0] = -2 * _yd[i]
+                self._f_block[0] = -2.0 * _yd[i]
             else:
                 span = _x[j] - _x[j+1]
                 span_sq = span ** 2
                 upper_span = _xd[i] - _x[j + 1]
                 lower_span = _xd[i] - _x[j]
 
-                self._H_block[0, 0] = self._H_block[0, 0] + 2 * upper_span ** 2 / span_sq
-                self._H_block[1, 0] = self._H_block[1, 0] + 2 * -lower_span * lower_span / span_sq
-                self._H_block[1, 1] = self._H_block[1, 1] + 2 * -lower_span ** 2 / span_sq
+                self._H_block[0, 0] = self._H_block[0, 0] + 2.0 * upper_span ** 2 / span_sq
+                self._H_block[1, 0] = self._H_block[1, 0] + -2.0 * lower_span * upper_span / span_sq
+                self._H_block[1, 1] = self._H_block[1, 1] + 2.0 * lower_span ** 2 / span_sq
 
-                self._f_block[0] = self._f_block[0] + 2 * _yd[i] * -upper_span / span
-                self._f_block[1] = self._f_block[1] + 2 * _yd[i] * lower_span / span
+                self._f_block[0] = self._f_block[0] + -2.0 * _yd[i] * upper_span / span
+                self._f_block[1] = self._f_block[1] + 2.0 * _yd[i] * lower_span / span
 
-        # Add End Points:
-        self._H_regression[-1, -1] = self._H_regression[-1, -1] + 2.0
-        self._f_regression[-1] = self._f_regression[-1] - 2.0 * _yd[-1]
+        # Add End Point:
+        self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * self._H_block[0, 0]
+        self._f_regression[-1] = self._H_regression[-1, -1] + self._risk_weights[-1] * self._f_block[0]
 
-        _H = self._H_regression.T + self._H_regression
-        self.numpy.copyto(self._H_regression , (self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_regression))))
+        # self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * 2.0
+        # self._f_regression[-1] = self._f_regression[-1] - 2.0 * self._risk_weights[-1] * _yd[-1]
+
+        # Make Matrix Upper Triangular:
+        self._H_regression[:, :] = self._H_regression.T
 
 
     @staticmethod
