@@ -1,4 +1,3 @@
-from ObstAvoidSetup import obst_avoid_setup
 import osqp
 import numpy as np
 from scipy import sparse
@@ -27,6 +26,9 @@ def obst_avoid_setup():
     
     m = 0.032;
     c = 0.5;
+    setup['m'] = m
+    setup['c'] = c
+    
     n = setup['Nodes']
     Th = setup['Th']
     dt = Th/(n - 1)
@@ -89,31 +91,10 @@ def obst_avoid_setup():
             lDyn2[i*(n-1) + j] = 0
             uDyn2[i*(n-1) + j] = 0
     
-    ###Risk Constraints###
-    #Right now the "risk model" is just a simple piecewise function that
-    #is equal to -delta when delta is negative and equal to 0 when it is
-    #positive. But theoretically, this could be replaced with whatever
-    #spline model we want relative to delta! Incorporating speed as
-    #the second risk source may be a little harder.
-    #(Also, if we change the risk model, this can't be precomputed anymore)
-    
-    ARisk = np.zeros((2*n, 11*n))
-    lRisk = np.zeros((2*n, 1))
-    uRisk = np.zeros((2*n, 1))
-    
-    for i in range(n):
-        ARisk[i, (11-1)*n + i] = 1
-        lRisk[i] = 0
-        uRisk[i] = math.inf
-    for i in range(n):
-        ARisk[n + i, (11 - 1)*n + i] = 1
-        ARisk[n + i, (11 - 2)*n + i] = 1
-        lRisk[n + i] = 0
-        uRisk[n + i] = math.inf
         
-    setup['ASetup'] = np.vstack((ABound, ADyn1, ADyn2, ARisk))
-    setup['lSetup'] = np.vstack((lBound, lDyn1, lDyn2, lRisk))
-    setup['uSetup'] = np.vstack((uBound, uDyn1, uDyn2, uRisk))
+    setup['ASetup'] = np.vstack((ABound, ADyn1, ADyn2))
+    setup['lSetup'] = np.vstack((lBound, lDyn1, lDyn2))
+    setup['uSetup'] = np.vstack((uBound, uDyn1, uDyn2))
     
     return setup
 
@@ -124,7 +105,7 @@ def obst_avoid_setup():
 #Optional parameter prevTraj takes into account previous trajectory when computing
 #line constraints
 #Trajectory is in the form of the 33 x n matrix: dt, x (0-7), y (0-7), z (0-7), yaw (0-7)
-def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
+def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[-1, 0], [0, 0]]):
     T = setup['Th']
     n = setup['Nodes']
   
@@ -165,9 +146,12 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
     
     myPosList = np.zeros((3, n))
     if len(prevTraj) != 0:   
-        myXList = prevTraj[:, 1].reshape((1, n - 1))
-        myYList = prevTraj[:, 9].reshape((1, n - 1))
-        myZList = prevTraj[:, 17].reshape((1, n - 1))
+#         myXList = prevTraj[:, 1].reshape((1, n - 1))
+#         myYList = prevTraj[:, 9].reshape((1, n - 1))
+#         myZList = prevTraj[:, 17].reshape((1, n - 1))
+        myXList = prevTraj[0, 1:]
+        myYList = prevTraj[1, 1:]
+        myZList = prevTraj[2, 1:]
         myPosList[0, 0:n-1] = myXList
         myPosList[1, 0:n-1] = myYList
         myPosList[2, 0:n-1] = myZList
@@ -220,31 +204,35 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
         lDelta[i] = np.dot(unitVec, pt)
         uDelta[i] = np.dot(unitVec, pt)
     
+    ###Risk Constraints###
+    numSplines = len(model)
+    ARisk = np.zeros((numSplines*n, lenX*n))
+    lRisk = np.zeros((numSplines*n, 1))
+    uRisk = np.zeros((numSplines*n, 1))
+    
+    for i in range(numSplines):
+        m = model[i][0]
+        b = model[i][1]
+        for j in range(n):
+            #r < m * delta + b --> m * delta - r > -b
+            ARisk[i*n + j, (lenX-2)*n + j] = m
+            ARisk[i*n + j, (lenX-1)*n + j] = -1
+            lRisk[i*n + j, 0] = -b
+            uRisk[i*n + j, 0] = math.inf
+    
+    
     ###Solve Optimization###
     ASetup = setup['ASetup']
-    a1 = np.shape(ASetup)[0]
-    a2 = np.shape(AEdge)[0]
-    a3 = np.shape(ALine)[0]
-    a4 = np.shape(ADelta)[0]
-    height = a1 + a2 + a3 + a4
-    A = np.zeros((height, lenX*n))
-    l = np.zeros((height, 1))
-    u = np.zeros((height, 1))
     
-    A[0:a1, :] = setup['ASetup']
-    A[a1:a1+a2, :] = AEdge
-    A[a1+a2:a1+a2+a3, :] = ALine
-    A[a1+a2+a3:, :] = ADelta
+    #Soft constraints seem to be behaving strangely? Focus on getting hard constraints to work first
+#     A = np.vstack((ASetup, AEdge, ALine, ADelta, ARisk))
+#     l = np.vstack((setup['lSetup'], lEdge, lLine, lDelta, lRisk))
+#     u = np.vstack((setup['uSetup'], uEdge, uLine, uDelta, uRisk))
     
-    l[0:a1, :] = setup['lSetup']
-    l[a1:a1+a2, :] = lEdge
-    l[a1+a2:a1+a2+a3, :] = lLine
-    l[a1+a2+a3:, :] = lDelta
-    
-    u[0:a1, :] = setup['uSetup']
-    u[a1:a1+a2, :] = uEdge
-    u[a1+a2:a1+a2+a3, :] = uLine
-    u[a1+a2+a3:, :] = uDelta
+    #These have only hard constraint
+    A = np.vstack((ASetup, AEdge, ALine))
+    l = np.vstack((setup['lSetup'], lEdge, lLine))
+    u = np.vstack((setup['uSetup'], uEdge, uLine))
     
     H = sparse.csc_matrix(setup['H'])
     A = sparse.csc_matrix(A)
@@ -252,7 +240,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
     prob = osqp.OSQP()
     
     
-    prob.setup(H, f, A, l, u, warm_start = True)
+    prob.setup(H, f, A, l, u, warm_start = True, verbose = False)
     res = prob.solve()
     #print(time.time() - st)
     sol = res.x
@@ -261,36 +249,37 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = []):
     for i in range(lenX):
         traj[i, :] = np.transpose(sol[i*n : (i+1)*n])
     #print(traj)
+    return traj
     
     
-    finalTraj = np.zeros((n, 33))
-    finalTraj[:, 0] = dt
-    for i in range(3):
-        finalTraj[:, 8*i + 1] = traj[i, :]
-        finalTraj[:, 8*i + 2] = traj[i + 3, :]
-        for j in range(3, 9):
-            finalTraj[:, 8*i + j] = np.gradient(finalTraj[:, 8*i + j - 1])
-    finalTraj = finalTraj[1:, :]
-    
-    return finalTraj
+#     finalTraj = np.zeros((n, 33))
+#     finalTraj[:, 0] = dt
+#     for i in range(3):
+#         finalTraj[:, 8*i + 1] = traj[i, :]
+#         finalTraj[:, 8*i + 2] = traj[i + 3, :]
+#         for j in range(3, 9):
+#             finalTraj[:, 8*i + j] = np.gradient(finalTraj[:, 8*i + j - 1])
+#     finalTraj = finalTraj[1:, :]
+#     
+#     return finalTraj
 
 #-------------------------------------------------------------------------------------
-### TESTING CODE ###
+# ### TESTING CODE ###
 # setup = obst_avoid_setup()
-# 
+# # 
 # qd_i = np.array([0.2, 0.2, 0, 0, 0, 0]);
 # qd_des = np.array([0, 0, 0, 0, 0, 0]);
-# qo_i = np.array([0, 1, 0, 0, -0.4, 0]);
+# qo_i = np.array([0, 1, 0, 0, -0.3, 0]);
 # 
-# fig, ax = plt.subplots(2)
+# fig, ax = plt.subplots(1)
 # 
 # startTime = time.time()
 # traj = next_traj(setup, qd_i, qd_des, qo_i) #Without previous trajectory
 # print(time.time() - startTime)
-# ax[0].plot(traj[:, 1], traj[:, 9])
+# plt.plot(traj[0, :], traj[1, :])
 # plt.xlim([-1, 1])
 # plt.ylim([-1, 1])
-# 
+# plt.show()
 # 
 # startTime = time.time()
 # traj = next_traj(setup, qd_i, qd_des, qo_i, traj) #With previous trajectory
