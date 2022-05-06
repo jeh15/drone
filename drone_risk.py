@@ -25,7 +25,7 @@ class Drone_Risk(object):
         self.initial_condition = initial_condition
         self._design_vector_column_format = 0
         self.control_horizon = self.numpy.zeros((3, 2))  # [f_x[:2]; f_y[:2]; f_z[:2]]
-        self.spline_resolution = 5
+        self.spline_resolution = 1
 
         # Initialize Matrices: (Private)
         self._direction_vector = self.numpy.zeros((3, self.nodes))
@@ -419,6 +419,8 @@ class Drone_Risk(object):
 
         # self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * 2.0
         # self._f_regression[-1] = self._f_regression[-1] - 2.0 * self._risk_weights[-1] * _yd[-1]
+
+        # self.pdb.set_trace()
 
         # Make Matrix Upper Triangular:
         self._H_regression[:, :] = self._H_regression.T
