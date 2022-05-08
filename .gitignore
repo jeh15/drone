@@ -4,6 +4,9 @@
 # Mark Up Images Folder:
 images/
 
+# Exclude exe:
+*.exe
+
 # Video Files:
 *.mp4
 

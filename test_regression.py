@@ -30,8 +30,12 @@ agent = drone_risk.Drone_Risk(nodes, initial_conditions, x0, desired_trajectory)
 agent.initialize_optimization()
 
 # Initialize Risk Regression:
-x_data = numpy.linspace(-5, 5, 21)
-y_data = numpy.random.rand(21)
+x_data = numpy.linspace(-1, 1, 21)
+# y_data = numpy.random.rand(21)
+y_data = numpy.array(
+    [0.32047225, 0.64431375, 0.82075674, 0.12774672, 0.92728747, 0.64255318, 0.65090247, 0.35466653, 0.21408264,
+     0.21432659, 0.51158198, 0.870237, 0.77179843, 0.09303753, 0.32216978, 0.40071889, 0.63870181, 0.89355759,
+     0.30076709, 0.68252839, 0.98761149])
 agent.risk_sample = numpy.vstack((x_data, y_data))
 agent.initialize_risk_regression()
 agent.get_failure_probability_function()

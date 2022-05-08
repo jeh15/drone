@@ -25,7 +25,7 @@ class Drone_Risk(object):
         self.initial_condition = initial_condition
         self._design_vector_column_format = 0
         self.control_horizon = self.numpy.zeros((3, 2))  # [f_x[:2]; f_y[:2]; f_z[:2]]
-        self.spline_resolution = 1
+        self.spline_resolution = 5
 
         # Initialize Matrices: (Private)
         self._direction_vector = self.numpy.zeros((3, self.nodes))
@@ -342,7 +342,10 @@ class Drone_Risk(object):
         # Update H and f matrices for risk regression:
         self.get_objective()
         # Update Problem Matrices:
-        self.risk_regression.update(Px=self._H_regression, q=self._f_regression)
+        _H = self._H_regression.T + self._H_regression
+        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_regression))
+        self._H_regression_sparse = self.scipy.sparse.csc_matrix(_H)
+        self.risk_regression.update(Px=self.scipy.sparse.triu(self._H_regression_sparse).data, q=self._f_regression)
         # Solve Optimization:
         self.risk_regression_solution = self.risk_regression.solve()
         self.risk_regression_y = self.risk_regression_solution.x[:]
@@ -415,7 +418,7 @@ class Drone_Risk(object):
 
         # Add End Point:
         self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * self._H_block[0, 0]
-        self._f_regression[-1] = self._H_regression[-1, -1] + self._risk_weights[-1] * self._f_block[0]
+        self._f_regression[-1] = self._f_regression[-1] + self._risk_weights[-1] * self._f_block[0]
 
         # self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * 2.0
         # self._f_regression[-1] = self._f_regression[-1] - 2.0 * self._risk_weights[-1] * _yd[-1]

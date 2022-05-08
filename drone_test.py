@@ -56,7 +56,11 @@ print(run_time / iteration_range)
 Plots:
 """
 # Setup Animation Writer:
+<<<<<<< Updated upstream
 FPS = 60
+=======
+FPS = nodes
+>>>>>>> Stashed changes
 dpi = 300
 writerObj = FFMpegWriter(fps=FPS)
 
@@ -84,6 +88,9 @@ ax.add_patch(goal_patch)
 # Obstacle:
 obstacle_patch = Circle((0, 0), radius=0.1, color='red', zorder=1)
 ax.add_patch(obstacle_patch)
+
+# Plot Clean Up:
+
 
 # Plot and Create Animation:
 with writerObj.saving(fig, video_title + ".mp4", dpi):
