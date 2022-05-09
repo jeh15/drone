@@ -36,13 +36,18 @@ class Drone_Risk(object):
         # risk_function format = [slope, y-intercept]
         self.risk_function = self.numpy.zeros((self.spline_resolution, 2))
         # Regression Matrices
-        self._H_regression = self.numpy.zeros((self.spline_resolution+1, self.spline_resolution+1), dtype=float)
-        self._H_regression_sparse = 0.0
-        self._f_regression = self.numpy.zeros((self.spline_resolution+1,) , dtype=float)
+        self._H_fpf = self.numpy.zeros((self.spline_resolution+1, self.spline_resolution+1), dtype=float)
+        self._H_fpf_sparse = 0.0
+        self._f_fpf = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        self._H_ls = self.numpy.zeros((self.spline_resolution + 1, self.spline_resolution + 1), dtype=float)
+        self._H_ls_sparse = 0.0
+        self._f_ls = self.numpy.zeros((self.spline_resolution + 1,), dtype=float)
         self._H_block = self.numpy.zeros((2, 2), dtype=float)
         self._f_block = self.numpy.zeros((2,), dtype=float)
-        self.risk_regression_y = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
-        self.risk_regression_x = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        self.fpf_y = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        self.fpf_x = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
+        self.ls_y = self.numpy.zeros((self.spline_resolution + 1,), dtype=float)
+        self.ls_x = self.numpy.zeros((self.spline_resolution + 1,), dtype=float)
         self._risk_weights = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
         # risk sample format: [x values; y values]
         self.risk_sample = self.numpy.zeros((1, 1), dtype=float)
@@ -112,9 +117,6 @@ class Drone_Risk(object):
             for _j in range(_design_vector_length):
                 _eval = _eval.subs(_X[_j], 0)
             _f[_i] = _eval
-
-        # OLD: Sympy Sucks and can't handle this...
-        # _f = [_f[_i].subs(_X[_i], 0) for _i in range(_design_vector_length)]
 
         # Convert H to self.numpy array:
         _H = self.numpy.asarray(_H, dtype=float)
@@ -338,45 +340,92 @@ class Drone_Risk(object):
         # initial_conditions Data format: [x, y, z, dx, dy, dz]
         self.initial_condition[:] = self.simulation_solution.y[:, -1]
 
-    def get_failure_probability_function(self):
+    def get_fpf(self):
         # Update H and f matrices for risk regression:
-        self.get_objective()
+        self.get_objective_fpf()
         # Update Problem Matrices:
-        _H = self._H_regression.T + self._H_regression
-        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_regression))
-        self._H_regression_sparse = self.scipy.sparse.csc_matrix(_H)
-        self.risk_regression.update(Px=self.scipy.sparse.triu(self._H_regression_sparse).data, q=self._f_regression)
+        _H = self._H_fpf.T + self._H_fpf
+        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_fpf))
+        self._H_fpf_sparse = self.scipy.sparse.csc_matrix(_H)
+        self.fpf_regression.update(Px=self.scipy.sparse.triu(self._H_fpf_sparse).data, q=self._f_fpf)
         # Solve Optimization:
-        self.risk_regression_solution = self.risk_regression.solve()
-        self.risk_regression_y = self.risk_regression_solution.x[:]
+        self.fpf_regression_solution = self.fpf_regression.solve()
+        self.fpf_y = self.fpf_regression_solution.x[:]
 
-    def initialize_risk_regression(self):
+    def initialize_fpf(self):
         # Update H and f matrices for risk regression:
-        self.get_objective()
+        self.get_objective_fpf()
         # Make Triangular Matrix Full and Convert to CSC Format:
-        _H = self._H_regression.T + self._H_regression
-        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_regression))
-        self._H_regression_sparse = self.scipy.sparse.csc_matrix(_H)
+        _H = self._H_fpf.T + self._H_fpf
+        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_fpf))
+        self._H_fpf_sparse = self.scipy.sparse.csc_matrix(_H)
         # Get A Matrix, lower, and upper bounds:
         _A = self.scipy.sparse.eye(self.spline_resolution+1, format='csc')
         _l = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
         _u = self.numpy.ones((self.spline_resolution+1,), dtype=float)
         # Initialize Failure Probability Regression:
-        self.risk_regression = self.osqp.OSQP()
+        self.fpf_regression = self.osqp.OSQP()
         # Setup Problem:
-        self.risk_regression.setup(self._H_regression_sparse, self._f_regression, _A, _l, _u, warm_start=True)
-
-    def get_objective(self):
+        self.fpf_regression.setup(self._H_fpf_sparse, self._f_fpf, _A, _l, _u, warm_start=True)
+    
+    def get_ls(self):
+        # Update H, f, and A matrices for risk regression:
+        self.get_objective_ls()
+        _A_convex_constraint = self._A_convex_constraint(self.ls_x)
+        _A = self.numpy.eye(self.spline_resolution + 1, dtype=float)
+        _A = self.scipy.sparse.vstack((_A, _A_convex_constraint), format='csc')
+        # Update Problem Matrices:
+        _H = self._H_ls.T + self._H_ls
+        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_ls))
+        self._H_ls_sparse = self.scipy.sparse.csc_matrix(_H)
+        self.ls_regression.update(Px=self.scipy.sparse.triu(self._H_ls_sparse).data, q=self._f_ls, Ax=_A.data)
+        # Solve Optimization:
+        self.ls_regression_solution = self.ls_regression.solve()
+        self.ls_y = self.ls_regression_solution.x[:]
+        
+    def initialize_ls(self):
+        # Create Symbolic Constraints:
+        _y_hat = self.sympy.symarray('_y_hat', self.spline_resolution+1)
+        _x_hat = self.sympy.symarray('_x_hat', self.spline_resolution+1)
+        _m = self.numpy.empty(self.spline_resolution, dtype=object)
+        _convexity_constraint = self.numpy.empty(self.spline_resolution-1, dtype=object)
+        # Update H and f matrices for risk regression:
+        self.get_objective_ls()
+        # Make Triangular Matrix Full and Convert to CSC Format:
+        _H = self._H_ls.T + self._H_ls
+        self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_ls))
+        self._H_ls_sparse = self.scipy.sparse.csc_matrix(_H)
+        # Convexity Constraint:
+        for _i in range(self.spline_resolution):
+            _m[_i] = (_y_hat[_i+1] - _y_hat[_i]) / (_x_hat[_i+1] - _x_hat[_i])
+        for _i in range(self.spline_resolution-1):
+            _convexity_constraint[_i] = _m[_i] - _m[_i+1]
+        _A_convex_constraint, _b_convex_constraint = self.sympy.linear_eq_to_matrix(_convexity_constraint, _y_hat)
+        _b_convex_constraint = self.numpy.array(_b_convex_constraint).astype(self.numpy.float64)
+        _b_convex_constraint = _b_convex_constraint.flatten(order='F')
+        self._A_convex_constraint = self.sympy.lambdify([_x_hat], _A_convex_constraint, 'numpy')
+        # Get A Matrix, lower, and upper bounds:
+        _A_convex_constraint = self._A_convex_constraint(self.ls_x)
+        _A = self.numpy.eye(self.spline_resolution+1, dtype=float)
+        _A = self.scipy.sparse.vstack((_A, _A_convex_constraint), format='csc')
+        _l = -self.numpy.inf * self.numpy.ones((self.spline_resolution+1+self.spline_resolution-1,), dtype=float)
+        _u = self.numpy.zeros((self.spline_resolution+1+self.spline_resolution-1,), dtype=float)
+        # Initialize Failure Probability Regression:
+        self.ls_regression = self.osqp.OSQP()
+        # Setup Problem:
+        self.ls_regression.setup(self._H_ls_sparse, self._f_ls, _A, _l, _u, warm_start=True)
+    
+    def get_objective_fpf(self):
         # Data Point Locations:
         _xd = self.risk_sample[0, :]
         _yd = self.risk_sample[1, :]
-        self.risk_regression_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution+1)
-        _x = self.risk_regression_x
+        self.fpf_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution+1)
+        _x = self.fpf_x
 
         # Reset Matrices:
-        self._H_regression[:, :] = 0.0
-        self._f_regression[:] = 0.0
-
+        self._H_fpf[:, :] = 0.0
+        self._f_fpf[:] = 0.0
+        
         # Find the weights of each spline:
         _risk_weights = self.numpy.zeros((self.spline_resolution,))
         for _k in range(self.spline_resolution):
@@ -394,8 +443,8 @@ class Drone_Risk(object):
         j = 0
         for i in range(len(_xd)):
             if _xd[i] >= _x[j+1]:
-                self._H_regression[j:j+2, j:j+2] = self._H_regression[j:j+2, j:j+2] + self._risk_weights[j] * self._H_block
-                self._f_regression[j:j+2] = self._f_regression[j:j+2] + self._risk_weights[j] * self._f_block
+                self._H_fpf[j:j+2, j:j+2] = self._H_fpf[j:j+2, j:j+2] + self._risk_weights[j] * self._H_block
+                self._f_fpf[j:j+2] = self._f_fpf[j:j+2] + self._risk_weights[j] * self._f_block
                 j = j + 1
                 self._H_block[:, :] = 0.0
                 self._f_block[:] = 0.0
@@ -417,18 +466,56 @@ class Drone_Risk(object):
                 self._f_block[1] = self._f_block[1] + 2.0 * _yd[i] * lower_span / span
 
         # Add End Point:
-        self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * self._H_block[0, 0]
-        self._f_regression[-1] = self._f_regression[-1] + self._risk_weights[-1] * self._f_block[0]
-
-        # self._H_regression[-1, -1] = self._H_regression[-1, -1] + self._risk_weights[-1] * 2.0
-        # self._f_regression[-1] = self._f_regression[-1] - 2.0 * self._risk_weights[-1] * _yd[-1]
-
-        # self.pdb.set_trace()
+        self._H_fpf[-1, -1] = self._H_fpf[-1, -1] + self._risk_weights[-1] * self._H_block[0, 0]
+        self._f_fpf[-1] = self._f_fpf[-1] + self._risk_weights[-1] * self._f_block[0]
 
         # Make Matrix Upper Triangular:
-        self._H_regression[:, :] = self._H_regression.T
+        self._H_fpf[:, :] = self._H_fpf.T
 
+    def get_objective_ls(self):
+        # Data Point Locations:
+        _xd = self.fpf_x
+        _yd = self.numpy.log(1-self.fpf_y)
+        self.ls_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution + 1)
+        _x = self.ls_x
 
+        # Reset Matrices:
+        self._H_ls[:, :] = 0.0
+        self._f_ls[:] = 0.0
+
+        # Compute Hessian and Gradient:
+        j = 0
+        for i in range(len(_xd)):
+            if _xd[i] >= _x[j + 1]:
+                self._H_ls[j:j + 2, j:j + 2] = self._H_ls[j:j + 2, j:j + 2] + self._H_block
+                self._f_ls[j:j + 2] = self._f_ls[j:j + 2] + self._f_block
+                j = j + 1
+                self._H_block[:, :] = 0.0
+                self._f_block[:] = 0.0
+
+            if _xd[i] == _x[j]:
+                self._H_block[0, 0] = 2.0
+                self._f_block[0] = -2.0 * _yd[i]
+            else:
+                span = _x[j] - _x[j + 1]
+                span_sq = span ** 2
+                upper_span = _xd[i] - _x[j + 1]
+                lower_span = _xd[i] - _x[j]
+
+                self._H_block[0, 0] = self._H_block[0, 0] + 2.0 * upper_span ** 2 / span_sq
+                self._H_block[1, 0] = self._H_block[1, 0] + -2.0 * lower_span * upper_span / span_sq
+                self._H_block[1, 1] = self._H_block[1, 1] + 2.0 * lower_span ** 2 / span_sq
+
+                self._f_block[0] = self._f_block[0] + -2.0 * _yd[i] * upper_span / span
+                self._f_block[1] = self._f_block[1] + 2.0 * _yd[i] * lower_span / span
+
+        # Add End Point:
+        self._H_ls[-1, -1] = self._H_ls[-1, -1] + self._H_block[0, 0]
+        self._f_ls[-1] = self._f_ls[-1] + self._f_block[0]
+
+        # Make Matrix Upper Triangular:
+        self._H_ls[:, :] = self._H_ls.T
+        
     @staticmethod
     def ode_func(t, y, self):
         u = self.control_function(t)

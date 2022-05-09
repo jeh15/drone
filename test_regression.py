@@ -37,22 +37,31 @@ y_data = numpy.array(
      0.21432659, 0.51158198, 0.870237, 0.77179843, 0.09303753, 0.32216978, 0.40071889, 0.63870181, 0.89355759,
      0.30076709, 0.68252839, 0.98761149])
 agent.risk_sample = numpy.vstack((x_data, y_data))
-agent.initialize_risk_regression()
-agent.get_failure_probability_function()
+agent.initialize_fpf()
+agent.get_fpf()
+agent.initialize_ls()
+agent.get_ls()
 
 # Setup Figure: Initialize Figure / Axe Handles
-fig, ax = plt.subplots()
-p1, = ax.plot([], [], marker=".", color='black', linewidth=0)
-p2, = ax.plot([], [], color='red', linewidth=1)
-lb, ub = -5, 5
-ax.set_xlim([lb, ub])
-ax.set_ylim([lb, ub])
-ax.set_xlabel('X')  # X Label
-ax.set_ylabel('Y')  # Y Label
+fig, ax = plt.subplots(2, 1)
+p1, = ax[0].plot([], [], marker=".", color='black', linewidth=0)
+p2, = ax[0].plot([], [], color='red', linewidth=1)
+p3, = ax[1].plot([], [], marker=".", color='black', linewidth=0)
+p4, = ax[1].plot([], [], color='red', linewidth=1)
+lb, ub = -1, 1
+ax[0].set_xlim([lb, ub])
+ax[0].set_ylim([lb, ub])
+ax[0].set_xlabel('X')
+ax[0].set_ylabel('Y')
+ax[1].set_xlim([lb, ub])
+ax[1].set_ylim([lb, ub])
+ax[1].set_xlabel('X')
+ax[1].set_ylabel('Log-Y')
 
 p1.set_data(x_data, y_data)
-p2.set_data(agent.risk_regression_x, agent.risk_regression_y)
+p2.set_data(agent.fpf_x, agent.fpf_y)
 
-plt.vlines(agent.risk_regression_x, -4, 4)
+p3.set_data(agent.ls_x, agent.ls_y)
+p4.set_data(agent.ls_x, agent.ls_y)
 
 plt.show()
