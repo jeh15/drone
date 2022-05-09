@@ -1,3 +1,6 @@
+import pdb
+
+
 class Drone_Risk(object):
     """
     Class Dependent Libraries:
@@ -33,8 +36,8 @@ class Drone_Risk(object):
         self.velocity = self.numpy.einsum("ij, i->ij", self.numpy.ones((3, self.nodes)), self.initial_condition[3:])
         self.adversary_position = self.numpy.zeros((3, self.nodes))
         self.adversary_velocity = 0.0
-        # risk_function format = [slope, y-intercept]
-        self.risk_function = self.numpy.zeros((self.spline_resolution, 2))
+        # risk_function format = [slope; y-intercept]
+        self.risk_function = self.numpy.zeros((2, self.spline_resolution))
         # Regression Matrices
         self._H_fpf = self.numpy.zeros((self.spline_resolution+1, self.spline_resolution+1), dtype=float)
         self._H_fpf_sparse = 0.0
@@ -51,6 +54,8 @@ class Drone_Risk(object):
         self._risk_weights = self.numpy.zeros((self.spline_resolution+1,), dtype=float)
         # risk sample format: [x values; y values]
         self.risk_sample = self.numpy.zeros((1, 1), dtype=float)
+        # A poor method... make regression initialization more robust:
+        self._regression_init = 1
 
         # Initialize Attributues:
         self.simulation_solution = None
@@ -240,8 +245,8 @@ class Drone_Risk(object):
         self._direction_vector[:, :] = self.adversary_position - self.position
         _replacements = self.numpy.concatenate((self._direction_vector.flatten(order='C'),
                                                 self.adversary_position.flatten(order='C'),
-                                                self.risk_function[:, 0],
-                                                self.risk_function[:, 1]), axis=0)
+                                                self.risk_function[0, :],
+                                                self.risk_function[1, :]), axis=0)
 
         _A_risk = self.scipy.sparse.csc_matrix(self._A_risk(_replacements))
         _upper_risk = (self._b_risk(_replacements)).flatten(order='F')
@@ -288,8 +293,8 @@ class Drone_Risk(object):
         self._direction_vector[:, :] = self.adversary_position - self.position
         _replacements = self.numpy.concatenate((self._direction_vector.flatten(order='C'),
                                                 self.adversary_position.flatten(order='C'),
-                                                self.risk_function[:, 0],
-                                                self.risk_function[:, 1]), axis=0)
+                                                self.risk_function[0, :],
+                                                self.risk_function[1, :]), axis=0)
         _A_risk = self.scipy.sparse.csc_matrix(self._A_risk(_replacements))
         _upper_risk = (self._b_risk(_replacements)).flatten(order='F')
         _A_inequality = self.scipy.sparse.vstack((self._A_variable_bounds, _A_risk))
@@ -317,8 +322,14 @@ class Drone_Risk(object):
         """
 
         # Run OSQP:
-        self.solution = self.qp.solve()
-
+        solved = 0
+        while not solved:
+            self.solution = self.qp.solve()
+            if self.solution.info.status_val == 1 or self.solution.info.status_val == 2:
+                solved = 1
+            else:
+                self.pdb.set_trace()
+                break
         # Set Temporary Variable to hold Solution formatted Column-wise:
         # _temp data format: [x, dx, f_x, y, dy, f_y, z, dz, f_z]
         _temp = self.solution.x.reshape(self._design_vector_column_format, order='F')
@@ -399,7 +410,7 @@ class Drone_Risk(object):
         for _i in range(self.spline_resolution):
             _m[_i] = (_y_hat[_i+1] - _y_hat[_i]) / (_x_hat[_i+1] - _x_hat[_i])
         for _i in range(self.spline_resolution-1):
-            _convexity_constraint[_i] = _m[_i] - _m[_i+1]
+            _convexity_constraint[_i] = _m[_i+1] - _m[_i]
         _A_convex_constraint, _b_convex_constraint = self.sympy.linear_eq_to_matrix(_convexity_constraint, _y_hat)
         _b_convex_constraint = self.numpy.array(_b_convex_constraint).astype(self.numpy.float64)
         _b_convex_constraint = _b_convex_constraint.flatten(order='F')
@@ -414,11 +425,13 @@ class Drone_Risk(object):
         self.ls_regression = self.osqp.OSQP()
         # Setup Problem:
         self.ls_regression.setup(self._H_ls_sparse, self._f_ls, _A, _l, _u, warm_start=True)
-    
+
+    # TO DO: Make Robust to only 2 DATA POINTS
     def get_objective_fpf(self):
         # Data Point Locations:
-        _xd = self.risk_sample[0, :]
-        _yd = self.risk_sample[1, :]
+        _idx = self.numpy.argsort(self.risk_sample[0, :])
+        _xd = self.risk_sample[0, _idx]
+        _yd = self.risk_sample[1, _idx]
         self.fpf_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution+1)
         _x = self.fpf_x
 
@@ -476,6 +489,8 @@ class Drone_Risk(object):
         # Data Point Locations:
         _xd = self.fpf_x
         _yd = self.numpy.log(1-self.fpf_y)
+        if self.numpy.any(self.numpy.isnan(_yd)):
+            pdb.set_trace()
         self.ls_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution + 1)
         _x = self.ls_x
 
@@ -515,7 +530,16 @@ class Drone_Risk(object):
 
         # Make Matrix Upper Triangular:
         self._H_ls[:, :] = self._H_ls.T
-        
+
+    # TO DO: We can vectorize functions with numpy.vectorized
+    def get_risk_func(self):
+        for _i in range(self.spline_resolution):
+            _m = (self.ls_y[_i+1] - self.ls_y[_i]) / (self.ls_x[_i+1] - self.ls_x[_i])
+            _b = self.ls_y[_i] - _m * self.ls_x[_i]
+            self.risk_function[0, _i] = _m
+            self.risk_function[1, _i] = _b
+
+
     @staticmethod
     def ode_func(t, y, self):
         u = self.control_function(t)
