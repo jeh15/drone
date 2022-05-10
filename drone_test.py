@@ -56,11 +56,7 @@ print(run_time / iteration_range)
 Plots:
 """
 # Setup Animation Writer:
-<<<<<<< Updated upstream
 FPS = 60
-=======
-FPS = nodes
->>>>>>> Stashed changes
 dpi = 300
 writerObj = FFMpegWriter(fps=FPS)
 

@@ -38,6 +38,7 @@ def failure_simulation(agent, adversary):
 
 
 nodes = 21
+# nodes = 11
 number_of_states = 9
 x0 = numpy.zeros((nodes * number_of_states, 1))
 # initial_conditions Data format: [x, y, z, dx, dy, dz]
@@ -69,6 +70,7 @@ ax2 = fig.add_subplot(2, 2, 3)
 ax3 = fig.add_subplot(2, 2, 4)
 
 trajectory_plot, = ax1.plot([], [], color='black', linewidth=2)
+constraint_plot, = ax1.plot([], [], color='red', linewidth=2)
 p1, = ax2.plot([], [], marker=".", color='black', linewidth=0)
 p2, = ax2.plot([], [], color='red', linewidth=1)
 p3, = ax3.plot([], [], marker=".", color='black', linewidth=0)
@@ -114,12 +116,31 @@ agent.get_ls()
 
 # What if we only learn when we detect a failure?
 failure_count = 0
+failure_flag = 0
 
 # MPC Loop:
 for i in range(iteration_range):
+    ## DEBUG:
+    # if failure_flag == 1:
+    #     pdb.set_trace()
+
     # Update Constraints:
     agent.update_optimization()
+
+    ## DEBUG PLOT:
+    # Plot Plane Constraints: (Line)
+    x = numpy.linspace(-5, 5, nodes)
+    nx, ny, nz = (numpy.diag(agent.plot_A[:, :nodes]), numpy.diag(agent.plot_A[:, 3 * nodes:4 * nodes]),
+                  numpy.diag(agent.plot_A[:, 6 * nodes:7 * nodes]))
+    ny.setflags(write=1)
+    ny[ny == 0] = epsilon
+    for j in range(len(nx)):
+        y[j, :] = (agent.plot_b[j] - nx[j] * x) / ny[j]
+    constraint_history.append(y.copy())
+    ##
+
     # Generate Trajectory:
+    print('Trajectory Optimization:')
     agent.generate_trajectory()
     if agent.solution.info.status_val != 1 and agent.solution.info.status_val != 2:
         break_iter = i
@@ -129,12 +150,16 @@ for i in range(iteration_range):
     # Risk Learning:
     [risk_x, risk_y, idx, failure_flag] = failure_simulation(
         (agent.simulation_solution.y[0, :], agent.simulation_solution.y[1, :]), (0.0, 0.0))
+    agent.failure_flag = failure_flag
     if i == 0:
         agent.risk_sample = numpy.vstack((risk_x, risk_y))
     else:
         agent.risk_sample = numpy.hstack((agent.risk_sample, numpy.vstack((risk_x, risk_y))))
     failure_count = failure_count + failure_flag
+    agent.failure_counter = failure_count
+    print('Failure Probability:')
     agent.get_fpf()
+    print('Log-Survival:')
     agent.get_ls()
     if failure_count > 0:
         agent.get_risk_func()
@@ -146,7 +171,8 @@ for i in range(iteration_range):
     ls_history.append([agent.ls_x.copy(), agent.ls_y.copy()])
     # Failure Flag Check:
     if failure_flag == 1:
-        agent.x0 = x0
+        initial_conditions = numpy.array([-1, -1, 0, 0, 0, 0], dtype=float)
+        agent.position = numpy.einsum("ij, i->ij", numpy.ones((3, nodes)), initial_conditions[:3])
         agent.initial_condition[:] = initial_conditions
 
 # Plot and Create Animation:
@@ -157,13 +183,13 @@ with writerObj.saving(fig, video_title + ".mp4", dpi):
         p2.set_data(fpf_history[i][0], fpf_history[i][1])
         p3.set_data(ls_history[i][0], ls_history[i][1])
         p4.set_data(ls_history[i][0], ls_history[i][1])
-        for j in range(0, 21):
+        iter_range = len(history[i][0, :])
+        for j in range(0, iter_range):
             # Draw Pendulum Arm:
             agent_patch.center = (history[i][0, j], history[i][1, j])
             trajectory_plot.set_data(trajectory[i][0, :], trajectory[i][1, :])
+            constraint_plot.set_data(x, constraint_history[i][j, :])
             # Update Drawing:
             fig.canvas.draw()
             # Grab and Save Frame:
             writerObj.grab_frame()
-
-plt.show()
