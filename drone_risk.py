@@ -273,7 +273,7 @@ class Drone_Risk(object):
 
         # Create QP Object:
         self.qp = self.osqp.OSQP()
-        self.qp.setup(self.H, self.q, self.A, self.l, self.u, warm_start=True)
+        self.qp.setup(self.H, self.q, self.A, self.l, self.u, warm_start=True, check_termination=1000)
 
     def update_optimization(self):
         """
@@ -375,7 +375,7 @@ class Drone_Risk(object):
 
     def get_fpf(self):
         # Update H and f matrices for risk regression:
-        self.get_objective_fpf_OLD()
+        self.get_objective_fpf()
         # Update Problem Matrices:
         _H = self._H_fpf.T + self._H_fpf
         self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_fpf))
@@ -387,7 +387,7 @@ class Drone_Risk(object):
 
     def initialize_fpf(self):
         # Update H and f matrices for risk regression:
-        self.get_objective_fpf_OLD()
+        self.get_objective_fpf()
         # Make Triangular Matrix Full and Convert to CSC Format:
         _H = self._H_fpf.T + self._H_fpf
         self.numpy.fill_diagonal(_H, self.numpy.diag(self._H_fpf))
@@ -399,7 +399,7 @@ class Drone_Risk(object):
         # Initialize Failure Probability Regression:
         self.fpf_regression = self.osqp.OSQP()
         # Setup Problem:
-        self.fpf_regression.setup(self._H_fpf_sparse, self._f_fpf, _A, _l, _u, warm_start=True)
+        self.fpf_regression.setup(self._H_fpf_sparse, self._f_fpf, _A, _l, _u, warm_start=True, check_termination=1000)
     
     def get_ls(self):
         # Update H, f, and A matrices for risk regression:
@@ -441,12 +441,13 @@ class Drone_Risk(object):
         _A_convex_constraint = self._A_convex_constraint(self.ls_x)
         _A = self.numpy.eye(self.spline_resolution+1, dtype=float)
         _A = self.scipy.sparse.vstack((_A, _A_convex_constraint), format='csc')
-        _l = -self.numpy.inf * self.numpy.ones((self.spline_resolution+1+self.spline_resolution-1,), dtype=float)
+        # _l = -self.numpy.inf * self.numpy.ones((self.spline_resolution+1+self.spline_resolution-1,), dtype=float)
+        _l = -100.0 * self.numpy.ones((self.spline_resolution + 1 + self.spline_resolution - 1,), dtype=float)
         _u = self.numpy.zeros((self.spline_resolution+1+self.spline_resolution-1,), dtype=float)
         # Initialize Failure Probability Regression:
         self.ls_regression = self.osqp.OSQP()
         # Setup Problem:
-        self.ls_regression.setup(self._H_ls_sparse, self._f_ls, _A, _l, _u, warm_start=True)
+        self.ls_regression.setup(self._H_ls_sparse, self._f_ls, _A, _l, _u, warm_start=True, check_termination=1000)
 
     # TO DO: Make Robust to only 2 DATA POINTS
     def get_objective_fpf_OLD(self):
@@ -539,7 +540,7 @@ class Drone_Risk(object):
             if i == (len(_xd) - 1):
                 self._H_fpf[j:j+2, j:j+2] = self._H_fpf[j:j+2, j:j+2] + self._risk_weights[j] * self._H_block
                 self._f_fpf[j:j+2] = self._f_fpf[j:j+2] + self._risk_weights[j] * self._f_block
-                self.pdb.set_trace()
+                # self.pdb.set_trace()
             elif _xd[i] > _x[j+1]:
                 self._H_fpf[j:j+2, j:j+2] = self._H_fpf[j:j+2, j:j+2] + self._risk_weights[j] * self._H_block
                 self._f_fpf[j:j+2] = self._f_fpf[j:j+2] + self._risk_weights[j] * self._f_block
@@ -564,11 +565,11 @@ class Drone_Risk(object):
                 self._f_block[0] = self._f_block[0] + -2.0 * _yd[i] * upper_span / span
                 self._f_block[1] = self._f_block[1] + 2.0 * _yd[i] * lower_span / span
 
-        self.pdb.set_trace()
+        # self.pdb.set_trace()
         # Add End Point:
         self._H_fpf[-1, -1] = self._H_fpf[-1, -1] + self._risk_weights[-1] * 2.0
         self._f_fpf[-1] = self._f_fpf[-1] + self._risk_weights[-1] * -2.0 * _yd[-1]
-        self.pdb.set_trace()
+        # self.pdb.set_trace()
         # Make Matrix Upper Triangular:
         self._H_fpf[:, :] = self._H_fpf.T
 
