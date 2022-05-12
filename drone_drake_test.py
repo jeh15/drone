@@ -1,8 +1,3 @@
-import pdb
-
-import pydrake.solvers.mathematicalprogram
-
-
 class Drone_Risk(object):
     """
     Class Dependent Libraries:

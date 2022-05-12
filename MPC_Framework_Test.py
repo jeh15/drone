@@ -117,7 +117,7 @@ agent.get_ls()
 # What if we only learn when we detect a failure?
 failure_count = 0
 failure_flag = 0
-
+break_iter = 0
 # MPC Loop:
 for i in range(iteration_range):
     ## DEBUG:
@@ -175,9 +175,14 @@ for i in range(iteration_range):
         agent.position = numpy.einsum("ij, i->ij", numpy.ones((3, nodes)), initial_conditions[:3])
         agent.initial_condition[:] = initial_conditions
 
+if break_iter > 0:
+    iter_value = break_iter - 1
+else:
+    iter_value = iteration_range
+
 # Plot and Create Animation:
 with writerObj.saving(fig, video_title + ".mp4", dpi):
-    for i in range(0, break_iter-1):
+    for i in range(0, iter_value):
         # Update Regression Plots:
         p1.set_data(risk_history[i][0, :], risk_history[i][1, :])
         p2.set_data(fpf_history[i][0], fpf_history[i][1])

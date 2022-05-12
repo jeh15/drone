@@ -27,7 +27,7 @@ epsilon = 1E-8
 agent = drone_risk.Drone_Risk(nodes, initial_conditions, x0, desired_trajectory)
 
 # Initialize Optimization:
-agent.initialize_optimization()
+# agent.initialize_optimization()
 
 # Initialize Risk Regression:
 x_data = numpy.linspace(-1, 1, 21)
@@ -38,8 +38,8 @@ y_data = numpy.array(
      0.21432659, 0.51158198, 0.870237, 0.77179843, 0.09303753, 0.32216978, 0.40071889, 0.63870181, 0.89355759,
      0.30076709, 0.68252839, 0.98761149])
 agent.risk_sample = numpy.vstack((x_data, y_data))
-agent.initialize_fpf()
 print('FPF')
+agent.initialize_fpf()
 agent.get_fpf()
 print('LS')
 agent.initialize_ls()

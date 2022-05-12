@@ -382,7 +382,14 @@ class Drone_Risk(object):
         self._H_fpf_sparse = self.scipy.sparse.csc_matrix(_H)
         self.fpf_regression.update(Px=self.scipy.sparse.triu(self._H_fpf_sparse).data, q=self._f_fpf)
         # Solve Optimization:
-        self.fpf_regression_solution = self.fpf_regression.solve()
+        solved = 0
+        while not solved:
+            self.fpf_regression_solution = self.fpf_regression.solve()
+            if self.fpf_regression_solution.info.status_val == 1 or self.fpf_regression_solution.info.status_val == 2:
+                solved = 1
+                self.fpf_regression.update_settings(max_iter=int(4E3), check_termination=25)
+            else:
+                self.fpf_regression.update_settings(max_iter=int(1E4), check_termination=int(4E3))
         self.fpf_y = self.fpf_regression_solution.x[:]
 
     def initialize_fpf(self):
@@ -399,7 +406,7 @@ class Drone_Risk(object):
         # Initialize Failure Probability Regression:
         self.fpf_regression = self.osqp.OSQP()
         # Setup Problem:
-        self.fpf_regression.setup(self._H_fpf_sparse, self._f_fpf, _A, _l, _u, warm_start=True, check_termination=1000)
+        self.fpf_regression.setup(self._H_fpf_sparse, self._f_fpf, _A, _l, _u, warm_start=True)
     
     def get_ls(self):
         # Update H, f, and A matrices for risk regression:
@@ -413,7 +420,15 @@ class Drone_Risk(object):
         self._H_ls_sparse = self.scipy.sparse.csc_matrix(_H)
         self.ls_regression.update(Px=self.scipy.sparse.triu(self._H_ls_sparse).data, q=self._f_ls, Ax=_A.data)
         # Solve Optimization:
-        self.ls_regression_solution = self.ls_regression.solve()
+        solved = 0
+        while not solved:
+            self.ls_regression_solution = self.ls_regression.solve()
+            if self.ls_regression_solution.info.status_val == 1 or self.ls_regression_solution.info.status_val == 2:
+                solved = 1
+                self.ls_regression.update_settings(max_iter=int(4E3), check_termination=25)
+            else:
+                self.ls_regression.update_settings(max_iter=int(1E4), check_termination=int(4E3))
+                self.ls_regression.warm_start(x=self.numpy.zeros(self.spline_resolution+1,), y=self.numpy.zeros(self.spline_resolution+1,))
         self.ls_y = self.ls_regression_solution.x[:]
         
     def initialize_ls(self):
@@ -447,66 +462,66 @@ class Drone_Risk(object):
         # Initialize Failure Probability Regression:
         self.ls_regression = self.osqp.OSQP()
         # Setup Problem:
-        self.ls_regression.setup(self._H_ls_sparse, self._f_ls, _A, _l, _u, warm_start=True, check_termination=1000)
+        self.ls_regression.setup(self._H_ls_sparse, self._f_ls, _A, _l, _u, warm_start=False, polish=True)
 
     # TO DO: Make Robust to only 2 DATA POINTS
-    def get_objective_fpf_OLD(self):
-        # Data Point Locations:
-        _idx = self.numpy.argsort(self.risk_sample[0, :])
-        _xd = self.risk_sample[0, _idx]
-        _yd = self.risk_sample[1, _idx]
-        self.fpf_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution + 1)
-        _x = self.fpf_x
-
-        # Reset Matrices:
-        self._H_fpf[:, :] = 0.0
-        self._f_fpf[:] = 0.0
-
-        # Find the weights of each spline:
-        _risk_weights = self.numpy.zeros((self.spline_resolution,))
-        for _k in range(self.spline_resolution):
-            _risk_weights[_k] = self.numpy.sum((_xd[:] > _x[_k]) & (_xd[:] <= _x[_k + 1]))
-
-        for _k in range(self.spline_resolution + 1):
-            if _k == 0:
-                self._risk_weights[_k] = _risk_weights[0]
-            elif _k == self.spline_resolution:
-                self._risk_weights[_k] = _risk_weights[-1]
-            else:
-                self._risk_weights[_k] = _risk_weights[_k - 1] + _risk_weights[_k]
-
-        # Compute Hessian and Gradient:
-        j = 0
-        for i in range(len(_xd)):
-            if _xd[i] >= _x[j + 1]:
-                self._H_fpf[j:j + 2, j:j + 2] = self._H_fpf[j:j + 2, j:j + 2] + self._risk_weights[j] * self._H_block
-                self._f_fpf[j:j + 2] = self._f_fpf[j:j + 2] + self._risk_weights[j] * self._f_block
-                j = j + 1
-                self._H_block[:, :] = 0.0
-                self._f_block[:] = 0.0
-
-            if _xd[i] == _x[j]:
-                self._H_block[0, 0] = 2.0
-                self._f_block[0] = -2.0 * _yd[i]
-            else:
-                span = _x[j] - _x[j + 1]
-                span_sq = span ** 2
-                upper_span = _xd[i] - _x[j + 1]
-                lower_span = _xd[i] - _x[j]
-
-                self._H_block[0, 0] = self._H_block[0, 0] + 2.0 * upper_span ** 2 / span_sq
-                self._H_block[1, 0] = self._H_block[1, 0] + -2.0 * lower_span * upper_span / span_sq
-                self._H_block[1, 1] = self._H_block[1, 1] + 2.0 * lower_span ** 2 / span_sq
-
-                self._f_block[0] = self._f_block[0] + -2.0 * _yd[i] * upper_span / span
-                self._f_block[1] = self._f_block[1] + 2.0 * _yd[i] * lower_span / span
-
-        # Add End Point:
-        self._H_fpf[-1, -1] = self._H_fpf[-1, -1] + self._risk_weights[-1] * self._H_block[0, 0]
-        self._f_fpf[-1] = self._f_fpf[-1] + self._risk_weights[-1] * self._f_block[0]
-        self.pdb.set_trace()
-        # Make Matrix Upper Triangular:
-        self._H_fpf[:, :] = self._H_fpf.T
+    # def get_objective_fpf_OLD(self):
+    #     # Data Point Locations:
+    #     _idx = self.numpy.argsort(self.risk_sample[0, :])
+    #     _xd = self.risk_sample[0, _idx]
+    #     _yd = self.risk_sample[1, _idx]
+    #     self.fpf_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution + 1)
+    #     _x = self.fpf_x
+    #
+    #     # Reset Matrices:
+    #     self._H_fpf[:, :] = 0.0
+    #     self._f_fpf[:] = 0.0
+    #
+    #     # Find the weights of each spline:
+    #     _risk_weights = self.numpy.zeros((self.spline_resolution,))
+    #     for _k in range(self.spline_resolution):
+    #         _risk_weights[_k] = self.numpy.sum((_xd[:] > _x[_k]) & (_xd[:] <= _x[_k + 1]))
+    #
+    #     for _k in range(self.spline_resolution + 1):
+    #         if _k == 0:
+    #             self._risk_weights[_k] = _risk_weights[0]
+    #         elif _k == self.spline_resolution:
+    #             self._risk_weights[_k] = _risk_weights[-1]
+    #         else:
+    #             self._risk_weights[_k] = _risk_weights[_k - 1] + _risk_weights[_k]
+    #
+    #     # Compute Hessian and Gradient:
+    #     j = 0
+    #     for i in range(len(_xd)):
+    #         if _xd[i] >= _x[j + 1]:
+    #             self._H_fpf[j:j + 2, j:j + 2] = self._H_fpf[j:j + 2, j:j + 2] + self._risk_weights[j] * self._H_block
+    #             self._f_fpf[j:j + 2] = self._f_fpf[j:j + 2] + self._risk_weights[j] * self._f_block
+    #             j = j + 1
+    #             self._H_block[:, :] = 0.0
+    #             self._f_block[:] = 0.0
+    #
+    #         if _xd[i] == _x[j]:
+    #             self._H_block[0, 0] = 2.0
+    #             self._f_block[0] = -2.0 * _yd[i]
+    #         else:
+    #             span = _x[j] - _x[j + 1]
+    #             span_sq = span ** 2
+    #             upper_span = _xd[i] - _x[j + 1]
+    #             lower_span = _xd[i] - _x[j]
+    #
+    #             self._H_block[0, 0] = self._H_block[0, 0] + 2.0 * upper_span ** 2 / span_sq
+    #             self._H_block[1, 0] = self._H_block[1, 0] + -2.0 * lower_span * upper_span / span_sq
+    #             self._H_block[1, 1] = self._H_block[1, 1] + 2.0 * lower_span ** 2 / span_sq
+    #
+    #             self._f_block[0] = self._f_block[0] + -2.0 * _yd[i] * upper_span / span
+    #             self._f_block[1] = self._f_block[1] + 2.0 * _yd[i] * lower_span / span
+    #
+    #     # Add End Point:
+    #     self._H_fpf[-1, -1] = self._H_fpf[-1, -1] + self._risk_weights[-1] * self._H_block[0, 0]
+    #     self._f_fpf[-1] = self._f_fpf[-1] + self._risk_weights[-1] * self._f_block[0]
+    #     # self.pdb.set_trace()
+    #     # Make Matrix Upper Triangular:
+    #     self._H_fpf[:, :] = self._H_fpf.T
 
     # TO DO: Make Robust to only 2 DATA POINTS
     def get_objective_fpf(self):
@@ -578,7 +593,7 @@ class Drone_Risk(object):
         _xd = self.fpf_x
         _yd = self.numpy.log(1-self.fpf_y)
         if self.numpy.any(self.numpy.isnan(_yd)):
-            pdb.set_trace()
+            self.pdb.set_trace()
         # self.ls_x[:] = self.numpy.linspace(_xd[0], _xd[-1], self.spline_resolution + 1)
         self.ls_x[:] = self.fpf_x
         _x = self.ls_x
