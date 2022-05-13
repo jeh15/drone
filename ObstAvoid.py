@@ -105,7 +105,7 @@ def obst_avoid_setup():
 #Optional parameter prevTraj takes into account previous trajectory when computing
 #line constraints
 #Trajectory is in the form of the 33 x n matrix: dt, x (0-7), y (0-7), z (0-7), yaw (0-7)
-def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[-1, 0], [0, 0]]):
+def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]):
     T = setup['Th']
     n = setup['Nodes']
   
@@ -116,9 +116,9 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[-1, 0], [0, 0]
     targPos = np.array(qd_des[0:d])
     
     vec = myPos - obstPos
-    if np.dot(vec, vec) < (setup['r_min'])**2:
-        raise Exception('Minimum distance from obstacle violated, optimization did not produce results')
-    
+#     if np.dot(vec, vec) < (setup['r_min'])**2:
+#         raise Exception('Minimum distance from obstacle violated, optimization did not produce results')
+#     
     for i in range(0, d):
         if qd_i[i] < setup['xd_lb'][i] or qd_i[i] > setup['xd_ub'][i]:
             raise Exception('Cartesian Bounds Violated, Optimization did not produce results')
@@ -225,14 +225,14 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[-1, 0], [0, 0]
     ASetup = setup['ASetup']
     
     #Soft constraints seem to be behaving strangely? Focus on getting hard constraints to work first
-#     A = np.vstack((ASetup, AEdge, ALine, ADelta, ARisk))
-#     l = np.vstack((setup['lSetup'], lEdge, lLine, lDelta, lRisk))
-#     u = np.vstack((setup['uSetup'], uEdge, uLine, uDelta, uRisk))
+    A = np.vstack((ASetup, AEdge, ADelta, ARisk))
+    l = np.vstack((setup['lSetup'], lEdge, lDelta, lRisk))
+    u = np.vstack((setup['uSetup'], uEdge, uDelta, uRisk))
     
     #These have only hard constraint
-    A = np.vstack((ASetup, AEdge, ALine))
-    l = np.vstack((setup['lSetup'], lEdge, lLine))
-    u = np.vstack((setup['uSetup'], uEdge, uLine))
+#     A = np.vstack((ASetup, AEdge, ALine))
+#     l = np.vstack((setup['lSetup'], lEdge, lLine))
+#     u = np.vstack((setup['uSetup'], uEdge, uLine))
     
     H = sparse.csc_matrix(setup['H'])
     A = sparse.csc_matrix(A)

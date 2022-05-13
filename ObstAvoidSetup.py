@@ -5,7 +5,7 @@ def obst_avoid_setup():
     setup = {}
     setup['Th'] = 2.5;
     setup['Nodes'] = 11;
-    setup['r_min'] = 0.1; #hard
+    setup['r_min'] = 0; #hard
     setup['r_min2'] = 0.3; #soft
     setup['cost'] = 5;
     setup['xd_lb'] = np.array([-2, -2, 0]);
@@ -92,9 +92,9 @@ def obst_avoid_setup():
         lRisk[n + i] = 0
         uRisk[n + i] = math.inf
         
-    setup['ASetup'] = np.vstack((ABound, ADyn1, ADyn2, ARisk))
-    setup['lSetup'] = np.vstack((lBound, lDyn1, lDyn2, lRisk))
-    setup['uSetup'] = np.vstack((uBound, uDyn1, uDyn2, uRisk))
+    setup['ASetup'] = np.vstack((ABound, ADyn1, ADyn2))
+    setup['lSetup'] = np.vstack((lBound, lDyn1, lDyn2))
+    setup['uSetup'] = np.vstack((uBound, uDyn1, uDyn2))
     
     return setup
     

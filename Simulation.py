@@ -24,15 +24,26 @@ def simulate_drone(T, dt, F, dx, x, m, c, numSamps):
 #     r = ode(f).set_integrator('zvode', method='bdf')
 #     r.set_initial_value([0, 0], t0).set_f_params(F, dt, m, c)
     
+#     ind = int(T/dt)
+#     print(ind)
+#     nextInd = ind + 1
+#     slope = (F[:, nextInd] - F[:, ind])/dt
+#     print(slope)
+#     myF = F[:, ind] + slope * (T - dt * (ind))
+#     print(myF)
+#     ddx = myF/m - c * dx
+#     x = x + dx * T
+#     dx = dx + ddx * T
+    
     ddt = T/(numSamps - 1)
 #     print(x)
 #     print(dx)
     for i in range(numSamps):
         t = (i - 1) * ddt
-        ind = int(t/dt) + 1
+        ind = int(t/dt)
         nextInd = ind + 1
         slope = (F[:, nextInd] - F[:, ind])/dt
-        myF = F[:, ind] + slope * (t - dt * (ind - 1))
+        myF = F[:, ind] + slope * (t - dt * (ind))
         
         ddx = myF/m - c * dx
         x = x + dx * ddt

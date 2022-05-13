@@ -16,7 +16,7 @@ qd_des = np.array([0, 0, 0, 0, 0, 0])
 
 
 d = 3
-numIters = 80
+numIters = 120
 obstLocs = np.zeros((numIters, 2))
 droneLocs = np.zeros((numIters, 2))
 targLocs = np.zeros((numIters, 2))
@@ -33,6 +33,7 @@ for i in range(numIters):
     #print(traj)
     prevTraj = traj
     F = traj[2*d:3*d, :]
+    print(F)
     x = traj[0, :]
     y = traj[1, :]
     thing = [[x[i], y[i]] for i in range(len(x))]
@@ -43,12 +44,12 @@ for i in range(numIters):
     numSamps = 10
     qo_i = Simulation.simulate_obst(sampleGap, qo_i, qd_i)
     qd_i = Simulation.simulate_drone(sampleGap, dt, F, traj[d:2*d, 0], traj[0:d, 0], setup['m'], setup['c'], numSamps)
-    print(qo_i)
-    print(qd_i)
-    print(obstLocs[i, :])
+#     print(qo_i)
+#     print(qd_i)
+#     print(obstLocs[i, :])
     obstLocs[i, 0] = qo_i[0]
     obstLocs[i, 1] = qo_i[1]
-    print(obstLocs[i, :])
+#     print(obstLocs[i, :])
     droneLocs[i, 0] = qd_i[0]
     droneLocs[i, 1] = qd_i[1]
     targLocs[i, 0] = qd_des[0]
@@ -58,8 +59,8 @@ plt.ion()
 for i in range(numIters):
     plt.clf()
     plt.scatter(droneLocs[i, 0], droneLocs[i, 1])
-    for j in range(len(things[i])):
-        plt.scatter(things[i][j][0], things[i][j][1], color = 'blue')
+#     for j in range(len(things[i])):
+#         plt.scatter(things[i][j][0], things[i][j][1], color = 'blue')
     plt.scatter(obstLocs[i, 0], obstLocs[i, 1])
     plt.scatter(targLocs[i, 0], targLocs[i, 1])
     plt.xlim([-1, 1])
