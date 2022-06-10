@@ -14,18 +14,18 @@ import time
 #states -- H, ABound, ADyn1, ADyn2, and ARisk for now
 def obst_avoid_setup():
     setup = {}
-    setup['Th'] = 2.5;
-    setup['Nodes'] = 11;
-    setup['r_min'] = 0.1; #hard
-    setup['r_min2'] = 0.3; #soft
-    setup['cost'] = 5;
-    setup['xd_lb'] = np.array([-2, -2, 0]);
-    setup['xd_ub'] = np.array([2, 2, 0]);
-    setup['vd_lb'] = np.array([-0.25, -0.25, 0]);
-    setup['vd_ub'] = np.array([0.25, 0.25, 0]);
+    setup['Th'] = 2.5
+    setup['Nodes'] = 11
+    setup['r_min'] = 0 #hard
+    setup['r_min2'] = 0 #soft
+    setup['cost'] = 100
+    setup['xd_lb'] = np.array([-2, -2, 0])
+    setup['xd_ub'] = np.array([2, 2, 0])
+    setup['vd_lb'] = np.array([-0.25, -0.25, 0])
+    setup['vd_ub'] = np.array([0.25, 0.25, 0])
     
-    m = 0.032;
-    c = 0.5;
+    m = 0.032
+    c = 0.5
     setup['m'] = m
     setup['c'] = c
     
@@ -34,10 +34,9 @@ def obst_avoid_setup():
     dt = Th/(n - 1)
     
     H = np.zeros((11*n, 11*n))
-    for i in range(3*n):
-        H[i, i] = 1
-    for i in range(10*n, 11*n):
-        H[i, i] = setup['cost']
+    #For distance from target
+#     for i in range(3*n):
+#         H[i, i] = 1
     H = 2 * H
     setup['H'] = H
     
@@ -105,7 +104,7 @@ def obst_avoid_setup():
 #Optional parameter prevTraj takes into account previous trajectory when computing
 #line constraints
 #Trajectory is in the form of the 33 x n matrix: dt, x (0-7), y (0-7), z (0-7), yaw (0-7)
-def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]):
+def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = np.array([[-1, -1], [0, 0], [1, 0]])):
     T = setup['Th']
     n = setup['Nodes']
   
@@ -130,9 +129,13 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]
     lenX = 3 * d + 2
     
     f = np.zeros((lenX*n, 1))
-    for i in range(d):
-        for j in range(i*n, (i+1)*n):
-            f[j] = -2 * targPos[i] 
+    #For distance from target
+#     for i in range(d):
+#         for j in range(i*n, (i+1)*n):
+#             f[j] = -2 * targPos[i]
+    for i in range((lenX-1)*n, lenX*n):
+        f[i] = -1
+        
         
     ###Edge Constraints###
     lEdge = np.zeros((2*d, 1))
@@ -163,7 +166,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]
     lLine = np.zeros((n, 1))
     uLine = np.zeros((n, 1))
     
-    op = obstPos;
+    op = obstPos
     obstVel = np.array(qo_i[d : 2*d])
     obstSpeed = math.sqrt(np.dot(obstVel, obstVel))
     for i in range(n):
@@ -186,7 +189,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]
     ADelta = np.zeros((n, lenX*n))
     lDelta = np.zeros((n, 1))
     uDelta = np.zeros((n, 1))
-    op = obstPos;
+    op = obstPos
     
     factor = 0
     for i in range(n):
@@ -205,14 +208,15 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]
         uDelta[i] = np.dot(unitVec, pt)
     
     ###Risk Constraints###
-    numSplines = len(model)
+    numPoints = np.shape(model)[0]
+    numSplines = numPoints - 1
     ARisk = np.zeros((numSplines*n, lenX*n))
     lRisk = np.zeros((numSplines*n, 1))
     uRisk = np.zeros((numSplines*n, 1))
     
     for i in range(numSplines):
-        m = model[i][0]
-        b = model[i][1]
+        m = (model[i+1, 1] - model[i, 1])/(model[i+1,0]-model[i,0])
+        b = model[i,1] - m * model[i,0]
         for j in range(n):
             #r < m * delta + b --> m * delta - r > -b
             ARisk[i*n + j, (lenX-2)*n + j] = m
@@ -220,14 +224,22 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [[1, 0], [0, 0]]
             lRisk[i*n + j, 0] = -b
             uRisk[i*n + j, 0] = math.inf
     
+    Aneg = np.zeros((n, lenX*n))
+    lneg = np.zeros((n, 1))
+    uneg = np.zeros((n, 1))
+    for j in range(n):
+        Aneg[j, (lenX-1)*n + j] = 1
+        lneg[j, 0] = -math.inf
+        uneg[j, 0] = 0
+    
     
     ###Solve Optimization###
     ASetup = setup['ASetup']
     
     #Soft constraints seem to be behaving strangely? Focus on getting hard constraints to work first
-    A = np.vstack((ASetup, AEdge, ADelta, ARisk))
-    l = np.vstack((setup['lSetup'], lEdge, lDelta, lRisk))
-    u = np.vstack((setup['uSetup'], uEdge, uDelta, uRisk))
+    A = np.vstack((ASetup, AEdge, ADelta, ARisk, Aneg))
+    l = np.vstack((setup['lSetup'], lEdge, lDelta, lRisk, lneg))
+    u = np.vstack((setup['uSetup'], uEdge, uDelta, uRisk, uneg))
     
     #These have only hard constraint
 #     A = np.vstack((ASetup, AEdge, ALine))

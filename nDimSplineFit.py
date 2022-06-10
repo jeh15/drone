@@ -6,26 +6,29 @@ import math
 import random
 import time
 
-numPoints = 50
-numDims = 2
-numSplinesPerDim = 2
-convex = False
-bound = False
-
-points = np.zeros((numPoints, numDims + 1))
-for i in range(numPoints):
-    vec = 2 * np.random.rand(numDims)
-    #print(vec)
-    val = np.dot(vec, vec)
-    points[i, :] = np.hstack((vec, val))
-#print(points)
+# numPoints = 50
+# numDims = 1
+# numSplinesPerDim = 2
+# convex = False
+# bound = False
+# 
+# points = np.zeros((numPoints, numDims + 1))
+# for i in range(numPoints):
+#     vec = 2 * np.random.rand(numDims)
+#     #print(vec)
+#     val = math.sqrt(np.dot(vec, vec)) + 1
+#     points[i, :] = np.hstack((vec, val))
+# #print(points)
 
 def compress(hooks, p):
     ret = 0
     for i in range(np.size(hooks)):
         ret += p**i * hooks[i]
     return ret
-    
+
+#Input is [x1, x2... xn, y1]
+#         [x1, x2... xn, y2]
+#                ...
 def splineFit(points, numSplinesPerDim, convex, bound):
     sz = np.shape(points)
     numPoints = sz[0]
@@ -44,8 +47,8 @@ def splineFit(points, numSplinesPerDim, convex, bound):
                 maxs[j] = points[i, j]
     maxs = maxs + 0.1
     mins = mins - 0.1
-    print(maxs)
-    print(mins)
+    #print(maxs)
+    #print(mins)
     
     for i in range(numPoints):
         for j in range(numDims):
@@ -62,7 +65,7 @@ def splineFit(points, numSplinesPerDim, convex, bound):
     xPoints = np.zeros((h**n, n))
     clock = np.zeros((n))
     for i in range(h**n):
-        print(clock)
+        #print(clock)
         xPoints[i, :] = np.multiply((hookGap * clock), (maxs - mins)) + mins
         ind = 0
         clock[ind] = clock[ind] + 1
@@ -109,7 +112,7 @@ def splineFit(points, numSplinesPerDim, convex, bound):
                         binList[k] = 0
                         binList[k + 1] += 1
         
-        print(locList)
+        #print(locList)
         for i in range(2**numDims):
             for j in range(2**numDims):
                 hook1 = int(locList[i])
@@ -199,13 +202,13 @@ def splineFit(points, numSplinesPerDim, convex, bound):
     outputFinal = np.reshape(res.x, (h**n, 1))
     
     final = np.hstack((xPoints, outputFinal))
-    print(final)
+    #print(final)
     return final
     
         
 
-hooks = splineFit(points, numSplinesPerDim, convex, bound)
-for i in range(np.shape(hooks)[0]):
-    vec = hooks[i, 0:numDims]
-    error = hooks[i, numDims] - np.dot(vec, vec)
-    print(error)
+# hooks = splineFit(points, numSplinesPerDim, convex, bound)
+# for i in range(np.shape(hooks)[0]):
+#     vec = hooks[i, 0:numDims]
+#     error = hooks[i, numDims] - math.sqrt(np.dot(vec, vec))
+#     print(error)
