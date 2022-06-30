@@ -134,7 +134,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
 #         for j in range(i*n, (i+1)*n):
 #             f[j] = -2 * targPos[i]
     for i in range((lenX-1)*n, lenX*n):
-        f[i] = -1
+        f[i] = -1 #The current objective is simply to maximize sum of logS (minimize risk)
         
         
     ###Edge Constraints###
@@ -147,11 +147,9 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
         lEdge[i] = qd_i[i]
         uEdge[i] = qd_i[i]
     
+    #We map a position list to the previous trajectory
     myPosList = np.zeros((3, n))
     if len(prevTraj) != 0:   
-#         myXList = prevTraj[:, 1].reshape((1, n - 1))
-#         myYList = prevTraj[:, 9].reshape((1, n - 1))
-#         myZList = prevTraj[:, 17].reshape((1, n - 1))
         myXList = prevTraj[0, 1:]
         myYList = prevTraj[1, 1:]
         myZList = prevTraj[2, 1:]
@@ -160,34 +158,11 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
         myPosList[2, 0:n-1] = myZList
         myPosList[:, n-1] = myPosList[:, n-2]
         myPosList[:, 0] = myPos
-    
-    ###Hard Line Constraints###
-    ALine = np.zeros((n, lenX*n))
-    lLine = np.zeros((n, 1))
-    uLine = np.zeros((n, 1))
-    
-    op = obstPos
-    obstVel = np.array(qo_i[d : 2*d])
-    obstSpeed = math.sqrt(np.dot(obstVel, obstVel))
-    for i in range(n):
-        if len(prevTraj) != 0:
-            myPos = myPosList[:, i]
-        #print(myPos)
-        op = op + obstVel * dt
-        vec = myPos - op
-        mag = math.sqrt(np.dot(vec, vec))
-        unitVec = vec/mag
-        
-        pt = op + unitVec * setup['r_min']
-        for j in range(d):
-            ALine[i, j*n + i] = unitVec[j]
-        lLine[i] = np.dot(unitVec, pt)
-        uLine[i] = math.inf
         
     
     ###Delta Definition Constraints###
     #DeltaPos is (pos - obstPos) projected onto (pos0 - obstPos)
-    #DeltaVel is (vel - obstVel) projected onto (pos0 - obstPos)?
+    #DeltaVel is (vel) projected onto (pos0 - obstPos)?
     ADeltaPos = np.zeros((n, lenX*n))
     ADeltaVel = np.zeros((n, lenX*n))
     lDeltaPos = np.zeros((n, 1))
@@ -199,7 +174,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
     
     for i in range(n):
         if len(prevTraj) != 0:
-            myPos = myPosList[:, i]
+            myPos = myPosList[:, i] #Replace initial position with pos from prev traj if applicable
         op = op + ov * dt
         unitVec = (myPos - op)/(np.linalg.norm(myPos - op))
         
@@ -215,6 +190,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
         uDeltaVel[i] = lDeltaVel[i]
     
     ###delta_final = transform[0] * deltaPos + transform[1] * deltaVel
+    # r < delta * m_i + b_i for all (m_i, b_i) splines
     ###Risk Constraints###
     numPoints = np.shape(model)[0]
     numSplines = max(numPoints - 1, 0)
@@ -234,6 +210,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
                 lRisk[i*n + j, 0] = -b
                 uRisk[i*n + j, 0] = math.inf
     
+    #r < 0
     Aneg = np.zeros((n, lenX*n))
     lneg = np.zeros((n, 1))
     uneg = np.zeros((n, 1))
@@ -246,15 +223,9 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
     ###Solve Optimization###
     ASetup = setup['ASetup']
     
-    #Soft constraints seem to be behaving strangely? Focus on getting hard constraints to work first
     A = np.vstack((ASetup, AEdge, ADeltaPos, ADeltaVel, ARisk, Aneg))
     l = np.vstack((setup['lSetup'], lEdge, lDeltaPos, lDeltaVel, lRisk, lneg))
     u = np.vstack((setup['uSetup'], uEdge, uDeltaPos, uDeltaVel, uRisk, uneg))
-    
-    #These have only hard constraint
-#     A = np.vstack((ASetup, AEdge, ALine))
-#     l = np.vstack((setup['lSetup'], lEdge, lLine))
-#     u = np.vstack((setup['uSetup'], uEdge, uLine))
     
     H = sparse.csc_matrix(setup['H'])
     A = sparse.csc_matrix(A)
@@ -262,7 +233,7 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
     prob = osqp.OSQP()
     
     
-    prob.setup(H, f, A, l, u, warm_start = True, verbose = False)
+    prob.setup(H, f, A, l, u, warm_start = True, verbose = True, max_iter = 10000)
     res = prob.solve()
     #print(time.time() - st)
     sol = res.x
@@ -270,10 +241,10 @@ def next_traj(setup, qd_i, qd_des, qo_i, prevTraj = [], model = [], transform = 
     traj = np.zeros((lenX, n))
     for i in range(lenX):
         traj[i, :] = np.transpose(sol[i*n : (i+1)*n])
-    #print(traj)
+    print(traj)
     return traj
     
-    
+    #This code is for transforming into the n x 33 matrix that is used in drone control
 #     finalTraj = np.zeros((n, 33))
 #     finalTraj[:, 0] = dt
 #     for i in range(3):
